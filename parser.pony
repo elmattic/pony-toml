@@ -1,6 +1,5 @@
 use "assert"
 use "collections"
-use "debug"
 use "files"
 use "itertools"
 
@@ -269,24 +268,18 @@ class _Lexer
   fun is_key_char(value: U8): Bool =>
     is_alpha(value) or is_decimal(value) or is_dash_or_underscore(value)
 
-  fun ref next_block(): Bool =>
-    match file_or_string
-    | let file: File =>
+  fun ref next_block(file: File ref): Bool =>
       let block = file.read(_block_size)
       _block = consume block
       _position = 0
       _block.size() != 0
-    else
-      Debug.err("illegal to call when lexing a string")
-      false
-    end
 
   fun ref peep_char(): (U8 | None) =>
     try
       match file_or_string
       | let file: File => None
         if _position == _block.size() then
-          if not next_block() then
+          if not next_block(file) then
             return None
           end
         end
@@ -335,29 +328,25 @@ class _Lexer
     while true do
       match peep_char()
       | let nc: U8 if is_from_base(nc) =>
+        next_char()
         if not lex_decimal or (cc != '0') then
           let previous = value
           value = base(value, nc)
           if value < previous then
-            next_char()
             return TooLargeToBeRepresentedIn64Bit
           end
           last_underscore = false
-          next_char()
         else
-          next_char()
           return LeadingZerosInDecimalNotAllowed
         end
       | let nc: U8 if nc == '_' =>
-        if value == 0 then
           next_char()
+        if value == 0 then
           return UnderscoreAfterBasePrefixNotAllowed
         elseif not last_underscore then
           last_underscore = true
-          next_char()
           continue
         else
-          next_char()
           return UnderscoreNotSurroundedByDigits
         end
       | let _: U8 | None => break
