@@ -53,6 +53,7 @@ actor Main is TestList
     test(_TestIntegerLeadingZeros)
     test(_TestIntegerHex)
     test(_TestIntegerHex64bit)
+    test(_TestIntegerHexOutOfRange)
     test(_TestIntegerHexLeadingZero)
     test(_TestIntegerHexLeadingUnderscore)
     test(_TestIntegerHexLeadingSign)
@@ -582,6 +583,15 @@ class iso _TestIntegerHex64bit is UnitTest
       {
         "a": -1
       }""")
+
+class iso _TestIntegerHexOutOfRange is UnitTest
+  fun name(): String => "integer hexadecimal 64-bit that is out of range"
+
+  fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      a = 0xfffffffffffffffff
+      """)
 
 class iso _TestIntegerHexLeadingZero is UnitTest
   fun name(): String => "integer hexadecimal with a leading zero"

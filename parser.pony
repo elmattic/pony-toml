@@ -319,7 +319,7 @@ class _Lexer
   fun ref lex_integer_base(
     cc: U8,
     is_from_base: {(U8): Bool},
-    base: {(U64, U8): U64},
+    to_base: {(U64, U8): U64},
     lex_decimal: Bool = false)
     : (U64 | LexerError)
   =>
@@ -331,8 +331,8 @@ class _Lexer
         next_char()
         if not lex_decimal or (cc != '0') then
           let previous = value
-          value = base(value, nc)
-          if value < previous then
+          value = to_base(value, nc)
+          if (previous != 0) and (value <= previous) then
             return TooLargeToBeRepresentedIn64Bit
           end
           last_underscore = false
@@ -358,21 +358,21 @@ class _Lexer
       value
     end
 
-  fun hex(value: U64, cc: U8): U64 =>
+  fun to_hex(value: U64, cc: U8): U64 =>
     (value * 16) + (U64.from[U8](cc - '0') and 15) +
     if (cc >= 'A') or (cc >= 'a') then 9 else 0 end
 
-  fun hex_u32(value: U32, cc: U8): U32 =>
+  fun to_hex_u32(value: U32, cc: U8): U32 =>
     (value * 16) + (U32.from[U8](cc - '0') and 15) +
     if (cc >= 'A') or (cc >= 'a') then 9 else 0 end
 
-  fun octal(value: U64, cc: U8): U64 =>
+  fun to_octal(value: U64, cc: U8): U64 =>
     (value * 8) + U64.from[U8](cc - '0')
 
-  fun binary(value: U64, cc: U8): U64 =>
+  fun to_binary(value: U64, cc: U8): U64 =>
     (value * 2) + (U64.from[U8](cc - '0') and 1)
 
-  fun decimal(value: U64, cc: U8): U64 =>
+  fun to_decimal(value: U64, cc: U8): U64 =>
     (value * 10) + U64.from[U8](cc - '0')
 
   fun ref lex_integer(cc: U8, sign_prefix: Bool = false, is_pos: Bool = true)
@@ -381,10 +381,10 @@ class _Lexer
     let base_prefix = lex_base_prefix(cc)
     let result =
       match base_prefix
-      | _Hex => lex_integer_base(0, this~is_hex(), this~hex())
-      | _Octal => lex_integer_base(0, this~is_octal(), this~octal())
-      | _Binary => lex_integer_base(0, this~is_binary(), this~binary())
-      | None => lex_integer_base(cc, this~is_decimal(), this~decimal(), true)
+      | _Hex => lex_integer_base(0, this~is_hex(), this~to_hex())
+      | _Octal => lex_integer_base(0, this~is_octal(), this~to_octal())
+      | _Binary => lex_integer_base(0, this~is_binary(), this~to_binary())
+      | None => lex_integer_base(cc, this~is_decimal(), this~to_decimal(), true)
       end
     match result
     | let value: U64 =>
@@ -439,7 +439,7 @@ class _Lexer
     var i: USize = 0
     while true do
       match next_char()
-      | let nc: U8 if is_hex(nc) => codepoint = hex_u32(codepoint, nc)
+      | let nc: U8 if is_hex(nc) => codepoint = to_hex_u32(codepoint, nc)
       | None => return InvalidUnicodeEscapeCode
       end
       i = i + 1
