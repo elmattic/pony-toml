@@ -43,6 +43,11 @@ primitive MultiLineBasicStringNotAllowed
 fun string(): String iso^ =>
   "basic strings can't span over multiple lines, use multi-line basic".string()
 
+primitive MultiLineLiteralStringNotAllowed
+fun string(): String iso^ =>
+  ("literal strings can't span over multiple lines, " +
+  "use multi-line literal").string()
+
 primitive InvalidEscapeSequence
 fun string(): String iso^ => "invalid escape sequence".string()
 
@@ -52,6 +57,7 @@ fun string(): String iso^ => "invalid unicode escape code".string()
 type StringError is
   ( UnterminatedString
   | MultiLineBasicStringNotAllowed
+  | MultiLineLiteralStringNotAllowed
   | InvalidEscapeSequence
   | InvalidUnicodeEscapeCode )
 
@@ -259,7 +265,7 @@ class _Lexer
     (value == '#')
 
   fun is_quote(value: U8): Bool =>
-    (value == '"')
+    (value == '"') or (value == '\'')
 
   fun is_escape_char(value: U8): Bool =>
     (value == '\\')
@@ -489,18 +495,24 @@ class _Lexer
       InvalidEscapeSequence
     end
 
-  fun ref lex_basic_string(): (_String | LexerError) =>
+  fun ref lex_basic_string(cc: U8): (_String | LexerError) =>
+    let is_literal = cc == '\''
     let str: String = recover
       var temp: String ref = String()
       while true do
         match next_char()
-        | let nc: U8 if is_escape_char(nc) =>
+        | let nc: U8 if (not is_literal) and is_escape_char(nc) =>
           match lex_escape_sequence()
           | let value: U32 => temp.push_utf32(value)
           | let err: LexerError => return err
           end
-        | let nc: U8 if is_quote(nc) => break
-        | let nc: U8 if is_newline(nc) => return MultiLineBasicStringNotAllowed
+        | let nc: U8 if is_quote(nc) and (nc == cc) => break
+        | let nc: U8 if is_newline(nc) =>
+          if is_literal then
+            return MultiLineLiteralStringNotAllowed
+          else
+            return MultiLineBasicStringNotAllowed
+          end
         | let nc: U8 => temp.push(nc)
         | None => return UnterminatedString
         end
@@ -546,7 +558,7 @@ class _Lexer
         | let _: U8 | None => DecimalNumberExpected
         end
       | let nc: U8 if is_key_char(nc) => lex_key_or_boolean(nc)
-      | let nc: U8 if is_quote(nc) => lex_basic_string()
+      | let nc: U8 if is_quote(nc) => lex_basic_string(nc)
       | let nc: U8 if is_comment(nc) => lex_comment()
       | let nc: U8 => lex_symbol(nc)
       | None => _End

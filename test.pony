@@ -42,6 +42,7 @@ actor Main is TestList
     test(_TestStringBasicMultiLine)
     test(_TestStringBasicInvalidEscape)
     test(_TestStringBasicInvalidUnicode)
+    test(_TestStringLiteral)
 
     test(_TestIntegerZero)
     test(_TestIntegerOne)
@@ -491,6 +492,26 @@ class iso _TestStringBasicInvalidUnicode is UnitTest
       """
       a = "hello \uD800world"
       """)
+
+class iso _TestStringLiteral is UnitTest
+  fun name(): String => "string literal"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      # What you see is what you get.
+      winpath  = 'C:\Users\nodejs\templates'
+      winpath2 = '\\ServerX\admin$\system32\'
+      quoted   = 'Tom "Dubs" Preston-Werner'
+      regex    = '<\i\c*\s*>'
+      """,
+      """
+      {
+        "winpath": "C:\Users\nodejs\templates",
+        "winpath2": "\\ServerX\admin$\system32\",
+        "quoted": "Tom "Dubs" Preston-Werner",
+        "regex": "<\i\c*\s*>"
+      }""")
 
 //
 // Integer
