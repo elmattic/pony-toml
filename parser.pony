@@ -75,6 +75,10 @@ primitive KeyOrTableDefinedMoreThanOnce
 fun string(): String iso^ =>
   "you cannot define any key or table more than once".string()
 
+primitive ValueIsNotATable
+fun string(): String iso^ =>
+  "a value in current dotted key is not a table".string()
+
 class val UnexpectedToken
   let _value: _Token
   let _expected: String
@@ -86,7 +90,10 @@ class val UnexpectedToken
   fun string(): String iso^ =>
     ("expecting " + _expected + " but get " + _value.string()).string()
 
-type ParserError is ( KeyOrTableDefinedMoreThanOnce | UnexpectedToken )
+type ParserError is
+  ( KeyOrTableDefinedMoreThanOnce
+  | ValueIsNotATable
+  | UnexpectedToken )
 
 class Error
   let _lexer: _Lexer ref
@@ -140,22 +147,34 @@ class Error
     path + ":" + (line + 1).string() + ":" + (column + 1).string() + ": " +
     code.string() + hint()
 
-primitive _Bare
-primitive _Quotted
-primitive _Dotted
+class val _BareKey
+  let name: String val
 
-type _KeyUsage is (_Bare | _Quotted | _Dotted)
+  new val create(name': String val) =>
+    name = name'
 
-class val _Key
-  let value: String val
-  let usage: _KeyUsage val
+  new val from_integer(integer: _Integer) =>
+    name = integer.value.string()
 
-  new val create(value': String val, usage': _KeyUsage val) =>
-    value = value'
-    usage = usage'
+  new val from_boolean(boolean: _Bool) =>
+    name = boolean.value.string()
+
+  new val from_string(str: _String) =>
+    name = str.value
 
   fun string(): String iso^ =>
-    ("a key (" + value + ")").string()
+    ("a bare key (" + name + ")").string()
+
+class val _DottedKey
+  let names: Array[String]
+
+  new val create(names': Array[String] iso) =>
+    names = consume names'
+
+  fun string(): String iso^ =>
+    ("a dotted key").string()
+
+type _Key is (_BareKey | _DottedKey)
 
 class val _Integer
   let value: I64
@@ -188,6 +207,7 @@ primitive _End         fun string(): String iso^ => "EOF".string()
 primitive _LeftSquare  fun string(): String iso^ => "‘[’".string()
 primitive _RightSquare fun string(): String iso^ => "‘]’".string()
 primitive _Equals      fun string(): String iso^ => "‘=’".string()
+primitive _Dot         fun string(): String iso^ => "‘.’".string()
 primitive _Whitespace  fun string(): String iso^ => "a whitespace".string()
 primitive _Newline     fun string(): String iso^ => "a newline".string()
 
@@ -200,6 +220,7 @@ type _Token is
   | _LeftSquare
   | _RightSquare
   | _Equals
+  | _Dot
   | _Whitespace
   | _Newline )
 
@@ -427,7 +448,7 @@ class _Lexer
     | "true"  => _Bool(true)
     | "false" => _Bool(false)
     else
-      _Key(str, _Bare)
+      _BareKey(str)
     end
 
   fun ref is_valid_scalar(codepoint: U32): Bool =>
@@ -506,6 +527,7 @@ class _Lexer
     | '[' => _LeftSquare
     | ']' => _RightSquare
     | '=' => _Equals
+    | '.' => _Dot
     | ' ' | '\t' => _Whitespace
     | '\n' =>
       _next = (_next._1 + 1, 0)
@@ -630,6 +652,7 @@ class Parser
       | _LeftSquare => match rhs | _LeftSquare => true else false end
       | _RightSquare => match rhs | _RightSquare => true else false end
       | _Equals => match rhs | _Equals => true else false end
+      | _Dot => match rhs | _Dot => true else false end
       | _Whitespace => match rhs | _Whitespace => true else false end
       | _Newline => match rhs | _Newline => true else false end
       end
@@ -655,21 +678,31 @@ class Parser
       end
     end
 
-  fun ref _push_table(key: String): (None | ParserError) =>
+  fun ref _push_table(key: _BareKey, is_dotted: Bool = false)
+    : (None | ParserError)
+  =>
     try
       Assert(_table_stack.size() > 0, "_table_stack must not be empty")?
       let table = _table_stack(_table_stack.size() - 1)?
-      if table.map.contains(key) then
-        KeyOrTableDefinedMoreThanOnce
+      if table.map.contains(key.name) then
+        if is_dotted then
+          match table.map(key.name)?
+          | let this_table: TOMLTable => _table_stack.push(this_table)
+          else
+            ValueIsNotATable
+          end
+        else
+          KeyOrTableDefinedMoreThanOnce
+        end
       else
         let new_table = TOMLTable.create()
-        table.map.insert(key, new_table)?
+        table.map.insert(key.name, new_table)?
         _table_stack.push(new_table)
         None
       end
     end
 
-  fun ref _pop_and_push(key: String): (None | Error) =>
+  fun ref _pop_and_push(key: _BareKey): (None | Error) =>
     _pop_table()
     match _push_table(key)
     | None => _error_expected_if(_lexer.next(), [_RightSquare])
@@ -680,15 +713,15 @@ class Parser
     let token = _lexer.next()
     match token
     | let key: _Key =>
-      match key.usage
-      | _Bare => _pop_table()
+      match key
+      | let bare: _BareKey => _pop_and_push(bare)
+      else
+        // TODO
+        None
       end
-      match _push_table(key.value)
-      | None => _error_expected_if(_lexer.next(), [_RightSquare])
-      | let err: ParserError => Error(err, _lexer)
-      end
-    | let int: _Integer => _pop_and_push(int.value.string())
-    | let bool: _Bool => _pop_and_push(bool.value.string())
+    | let int: _Integer => _pop_and_push(_BareKey.from_integer(int))
+    | let bool: _Bool => _pop_and_push(_BareKey.from_boolean(bool))
+    | let str: _String => _pop_and_push(_BareKey.from_string(str))
     else
       _error_expected(token, "the table name")
     end
@@ -701,41 +734,88 @@ class Parser
       _error_expected(token, "‘=‘")
     end
 
-  fun ref _parse_value(): (TOMLValue | Error) =>
-    let token = _lexer.next()
-    match token
-    | let int: _Integer => int.value
-    | let bool: _Bool => bool.value
-    | let str: _String => str.value
+  fun ref _insert_value_rec(dotted: _DottedKey, value: TOMLValue, index: USize)
+    : (None | ParserError)
+  =>
+    try
+      let bare = _BareKey(dotted.names(index)?)
+      if index < (dotted.names.size() - 1) then
+        match _push_table(bare, true)
+        | None =>
+          match _insert_value_rec(dotted, value, index + 1)
+          | None => _pop_table()
+          | let err: ParserError => err
+          end
+        | let err: ParserError => err
+        end
+      else
+        _insert_value(bare, value)
+      end
     else
-      _error_expected(token, "a valid TOML value")
+      // unreachable
+      None
     end
 
   fun ref _insert_value(key: _Key, value: TOMLValue): (None | ParserError) =>
-    try
-      Assert(_table_stack.size() > 0, "_table_stack must not be empty")?
-      let table = _table_stack(_table_stack.size() - 1)?
-      if table.map.contains(key.value) then
-        KeyOrTableDefinedMoreThanOnce
-      else
-        table.map.insert(key.value, value)?
-        None
+    match key
+    | let bare: _BareKey =>
+      try
+        Assert(_table_stack.size() > 0, "_table_stack must not be empty")?
+        let table = _table_stack(_table_stack.size() - 1)?
+        if table.map.contains(bare.name) then
+          KeyOrTableDefinedMoreThanOnce
+        else
+          table.map.insert(bare.name, value)?
+          None
+        end
       end
+    | let dotted: _DottedKey =>
+      _insert_value_rec(dotted, value, 0)
     end
 
-  fun ref _parse_key_value(key: _Key): (None | Error) =>
-    match _parse_equals()
-    | None =>
-      match _parse_value()
-      | let value: TOMLValue =>
-        match _insert_value(key, value)
-        | None => _error_expected_if(_lexer.next(), [_Newline; _End])
-        | let err: ParserError => Error(err, _lexer)
-        end
-      | let err: Error => err
+  fun ref _parse_value(key: _Key): (None | Error) =>
+    let token = _lexer.next()
+    let result: (TOMLValue | Error) =
+      match token
+      | let int: _Integer => int.value
+      | let bool: _Bool => bool.value
+      | let str: _String => str.value
+      else
+        _error_expected(token, "a valid TOML value")
+      end
+    match result
+    | let value: TOMLValue =>
+      match _insert_value(key, value)
+      | None => _error_expected_if(_lexer.next(), [_Newline; _End])
+      | let err: ParserError => Error(err, _lexer)
       end
     | let err: Error => err
     end
+
+  fun ref _parse_key_value(bare: _BareKey): (None | Error) =>
+    let names: Array[String] iso = recover Array[String] end
+    names.push(bare.name)
+    while true do
+      let token = _lexer.next()
+      match token
+      | _Dot =>
+        let token' = _lexer.next()
+        match token'
+        | let bare': _BareKey => names.push(bare'.name)
+        | let int: _Integer => names.push(int.value.string())
+        | let bool: _Bool => names.push(bool.value.string())
+        | let str: _String => names.push(str.value)
+        else
+          return _error_expected(token', "a bare key")
+        end
+      | _Equals => break
+      else
+        return _error_expected(token, "dot or equals")
+      end
+    end
+    let dotted: Bool = names.size() > 1
+    let key: _Key = if dotted then _DottedKey(consume names) else bare end
+    _parse_value(key)
 
   fun ref _parse_top_level(): (None | Error) =>
     var result: (None | Error) = None
@@ -743,9 +823,10 @@ class Parser
       let token = _lexer.next()
       result =
         match token
-        | let key: _Key => _parse_key_value(key)
-        | let int: _Integer => _parse_key_value(_Key(int.value.string(), _Bare))
-        | let bool: _Bool => _parse_key_value(_Key(bool.value.string(), _Bare))
+        | let bare: _BareKey => _parse_key_value(bare)
+        | let int: _Integer => _parse_key_value(_BareKey.from_integer(int))
+        | let bool: _Bool => _parse_key_value(_BareKey.from_boolean(bool))
+        | let str: _String => _parse_key_value(_BareKey.from_string(str))
         | _LeftSquare => _parse_table()
         | _Newline => continue
         | _End => break

@@ -27,6 +27,13 @@ actor Main is TestList
     test(_TestKeyBareInteger)
     test(_TestKeyBareBoolean)
     test(_TestKeyDefinedTwoTimes)
+    test(_TestKeyDotted)
+    test(_TestKeyDottedWhitespace)
+    test(_TestKeyDottedPair)
+    test(_TestKeyDottedInvalid)
+    test(_TestKeyDottedDefinedTwoTimes)
+    test(_TestKeyQuotedEmpty)
+    test(_TestKeyQuotedNotEmpty)
 
     test(_TestStringBasic)
     test(_TestStringBasicEscapeChar)
@@ -305,6 +312,104 @@ class iso _TestKeyDefinedTwoTimes is UnitTest
       a = 0
       a = 1
       """)
+
+class iso _TestKeyDotted is UnitTest
+  fun name(): String => "key dotted"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      a.b = 0
+      """
+      ,
+      """
+      {
+        "a": {
+          "b": 0
+        }
+      }""")
+
+class iso _TestKeyDottedWhitespace is UnitTest
+  fun name(): String => "key dotted with whitespace"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      a . b = 0
+      """
+      ,
+      """
+      {
+        "a": {
+          "b": 0
+        }
+      }""")
+
+class iso _TestKeyDottedPair is UnitTest
+  fun name(): String => "key dotted pair"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      a.b = 0
+      a.c = 1
+      """
+      ,
+      """
+      {
+        "a": {
+          "c": 1,
+          "b": 0
+        }
+      }""")
+
+class iso _TestKeyDottedInvalid is UnitTest
+  fun name(): String => "key dotted invalid"
+
+  fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      a = 1
+      a.b = 0
+      """)
+
+class iso _TestKeyDottedDefinedTwoTimes is UnitTest
+  fun name(): String => "key dotted value defined two times"
+
+  fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      a.b = 1
+      a.b = 0
+      """)
+
+class iso _TestKeyQuotedEmpty is UnitTest
+  fun name(): String => "key quoted empty"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      "" = 0
+      """
+      ,
+      """
+      {
+        "": 0
+      }""")
+
+class iso _TestKeyQuotedNotEmpty is UnitTest
+  fun name(): String => "key quoted not empty"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      "a.b" = 0
+      """
+      ,
+      """
+      {
+        "a.b": 0
+      }""")
 
 //
 // String
