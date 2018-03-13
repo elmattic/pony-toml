@@ -77,6 +77,10 @@ actor Main is TestList
     test(_TestTableTwoInners)
     test(_TestTableKeyInteger)
     test(_TestTableDefinedTwoTimes)
+    test(_TestTableDotted)
+    test(_TestTableDottedTwice)
+    test(_TestTableDefinedAsKey)
+    test(_TestTableDottedDefinedAsKey)
 
 class Check
   fun apply(h: TestHelper, input: String, reference: String) =>
@@ -911,3 +915,77 @@ class iso _TestTableDefinedTwoTimes is UnitTest
       [a]
       c = 2
       """)
+
+class iso _TestTableDotted is UnitTest
+  fun name(): String => "table with a dotted name"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      [A.x]
+      a = 0
+      b = 1
+      """
+      ,
+      """
+      {
+        "A": {
+          "x": {
+            "a": 0,
+            "b": 1
+          }
+        }
+      }""")
+
+class iso _TestTableDottedTwice is UnitTest
+  fun name(): String => "table with a dotted name and a dotted key"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      [A.x]
+      a.g = 0
+      b = 1
+      """
+      ,
+      """
+      {
+        "A": {
+          "x": {
+            "a": {
+              "g": 0
+            },
+            "b": 1
+          }
+        }
+      }""")
+
+class iso _TestTableDefinedAsKey is UnitTest
+  fun name(): String => "table defined as key before"
+
+    fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      a = false
+      [a]
+      b = 1
+      """)
+
+class iso _TestTableDottedDefinedAsKey is UnitTest
+  fun name(): String => "table dotted defined as key before"
+
+    fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      [A.x]
+      x = 1
+      """,
+      """
+      {
+        "A": {
+          "x": {
+            "x": 1
+          }
+        }
+      }""")
+

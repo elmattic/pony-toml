@@ -153,7 +153,10 @@ class Error
     path + ":" + (line + 1).string() + ":" + (column + 1).string() + ": " +
     code.string() + hint()
 
-class val _BareKey
+trait _Keyable
+  fun key(): _BareKey val
+
+class val _BareKey is _Keyable
   let name: String val
 
   new val create(name': String val) =>
@@ -171,6 +174,9 @@ class val _BareKey
   fun string(): String iso^ =>
     ("a bare key (" + name + ")").string()
 
+  fun key(): _BareKey =>
+    _BareKey(name)
+
 class val _DottedKey
   let names: Array[String]
 
@@ -182,7 +188,7 @@ class val _DottedKey
 
 type _Key is (_BareKey | _DottedKey)
 
-class val _Integer
+class val _Integer is _Keyable
   let value: I64
 
   new val create(value': I64) =>
@@ -191,7 +197,10 @@ class val _Integer
   fun string(): String iso^ =>
     ("an integer (" + value.string() + ")").string()
 
-class val _String
+  fun key(): _BareKey =>
+    _BareKey(value.string())
+
+class val _String is _Keyable
   let value: String
 
   new val create(value': String) =>
@@ -200,7 +209,10 @@ class val _String
   fun string(): String iso^ =>
     ("a string (\"" + value.string() + "\")").string()
 
-class val _Bool
+  fun key(): _BareKey =>
+    _BareKey(value)
+
+class val _Bool is _Keyable
   let value: Bool
 
   new val create(value': Bool) =>
@@ -208,6 +220,9 @@ class val _Bool
 
   fun string(): String iso^ =>
     ("a boolean (" + value.string() + ")").string()
+
+  fun key(): _BareKey =>
+    _BareKey(value.string())
 
 primitive _End         fun string(): String iso^ => "EOF".string()
 primitive _LeftSquare  fun string(): String iso^ => "‘[’".string()
@@ -631,6 +646,7 @@ class Parser
   var _table_stack: Array[TOMLTable] ref = Array[TOMLTable]()
   var _parsing_done: Bool = false
   var _error: (None | Error) = None
+  let _root_level: USize = 1 // using _table_stack.size() do NOT work
 
   new from_file(file: File ref) =>
     _lexer = _Lexer.from_file(file)
@@ -683,11 +699,14 @@ class Parser
     end
 
   fun ref _pop_table(): None =>
-    // only pop if top of the stack is not the root table
-    if _table_stack.size() > 1 then
-      try
-        _table_stack.pop()?
-      end
+    try
+      Assert(_table_stack.size() > 1)?
+      _table_stack.pop()?
+    end
+
+  fun ref _pop_tables(): None =>
+    while _table_stack.size() != _root_level do
+      _pop_table()
     end
 
   fun ref _push_table(key: _BareKey, is_dotted: Bool = false)
@@ -714,36 +733,44 @@ class Parser
       end
     end
 
-  fun ref _pop_and_push(key: _BareKey): (None | Error) =>
-    _pop_table()
-    match _push_table(key)
-    | None => _error_expected_if(_lexer.next(), [_RightSquare])
-    | let err: ParserError => Error(err, _lexer)
+  fun ref _push_table_rec(dotted: _DottedKey, index: USize)
+    : (None | ParserError)
+  =>
+    try
+      if index < (dotted.names.size() - 1) then
+        let bare = _BareKey(dotted.names(index)?)
+        match _push_table(bare, true)
+        | None => _push_table_rec(dotted, index + 1)
+        | let err: ParserError => return err
+        end
+      else
+        let bare = _BareKey(dotted.names(index)?)
+        _push_table(bare)
+      end
+    else
+      // unreachable
+      None
     end
 
   fun ref _parse_table(): (None | Error) =>
     let token = _lexer.next()
     match token
-    | let key: _Key =>
-      match key
-      | let bare: _BareKey => _pop_and_push(bare)
-      else
-        // TODO
-        None
+    | let keyable: _Keyable val =>
+      let result =
+        match _parse_key(keyable.key(), true)
+        | let bare: _BareKey =>
+          _pop_tables()
+          _push_table(bare)
+        | let dotted: _DottedKey =>
+          _pop_tables()
+          _push_table_rec(dotted, 0)
+        end
+      match result
+      | None => None
+      | let err: ParserError => Error(err, _lexer)
       end
-    | let int: _Integer => _pop_and_push(_BareKey.from_integer(int))
-    | let bool: _Bool => _pop_and_push(_BareKey.from_boolean(bool))
-    | let str: _String => _pop_and_push(_BareKey.from_string(str))
     else
       _error_expected(token, "the table name")
-    end
-
-  fun ref _parse_equals(): (None | Error) =>
-    let token = _lexer.next()
-    match token
-    | _Equals => None
-    else
-      _error_expected(token, "‘=‘")
     end
 
   fun ref _insert_value_rec(dotted: _DottedKey, value: TOMLValue, index: USize)
@@ -804,30 +831,34 @@ class Parser
     | let err: Error => err
     end
 
-  fun ref _parse_key_value(bare: _BareKey): (None | Error) =>
+  fun ref _parse_key(bare: _BareKey, is_table: Bool = false): (_Key | Error) =>
     let names: Array[String] iso = recover Array[String] end
     names.push(bare.name)
     while true do
       let token = _lexer.next()
       match token
       | _Dot =>
-        let token' = _lexer.next()
-        match token'
-        | let bare': _BareKey => names.push(bare'.name)
-        | let int: _Integer => names.push(int.value.string())
-        | let bool: _Bool => names.push(bool.value.string())
-        | let str: _String => names.push(str.value)
+        let token2 = _lexer.next()
+        match token2
+        | let keyable: _Keyable val => names.push(keyable.key().name)
         else
-          return _error_expected(token', "a bare key")
+          return _error_expected(token2, "a bare or quoted key")
         end
-      | _Equals => break
+      | _Equals if not is_table => break
+      | _RightSquare if is_table => break
       else
-        return _error_expected(token, "dot or equals")
+        let terminator = if is_table then "a right bracket" else "equals" end
+        return _error_expected(token, "a dot or " + terminator)
       end
     end
     let dotted: Bool = names.size() > 1
-    let key: _Key = if dotted then _DottedKey(consume names) else bare end
-    _parse_value(key)
+    if dotted then _DottedKey(consume names) else bare end
+
+  fun ref _parse_key_value(bare: _BareKey): (None | Error) =>
+    match _parse_key(bare)
+    | let key: _Key => _parse_value(key)
+    | let err: Error => err
+    end
 
   fun ref _parse_top_level(): (None | Error) =>
     var result: (None | Error) = None
@@ -835,10 +866,7 @@ class Parser
       let token = _lexer.next()
       result =
         match token
-        | let bare: _BareKey => _parse_key_value(bare)
-        | let int: _Integer => _parse_key_value(_BareKey.from_integer(int))
-        | let bool: _Bool => _parse_key_value(_BareKey.from_boolean(bool))
-        | let str: _String => _parse_key_value(_BareKey.from_string(str))
+        | let keyable: _Keyable val => _parse_key_value(keyable.key())
         | _LeftSquare => _parse_table()
         | _Newline => continue
         | _End => break
@@ -881,6 +909,17 @@ actor _Main
       [database]
       connection_max = 5000
       enabled = true
+
+      [servers]
+
+        # Indentation (tabs and/or spaces) is allowed but not required
+        [servers.alpha]
+        ip = "10.0.0.1"
+        dc = "eqdc10"
+
+        [servers.beta]
+        ip = "10.0.0.2"
+        dc = "eqdc10"
       """)
     match parser.parse()
     | let doc: TOMLTable =>
