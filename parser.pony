@@ -39,14 +39,10 @@ primitive UnterminatedString
 fun string(): String iso^ =>
   "unterminated string, did you forget the ‘\"’?".string()
 
-primitive MultiLineBasicStringNotAllowed
+primitive MultiLineStringNotAllowed
 fun string(): String iso^ =>
-  "basic strings can't span over multiple lines, use multi-line basic".string()
-
-primitive MultiLineLiteralStringNotAllowed
-fun string(): String iso^ =>
-  ("literal strings can't span over multiple lines, " +
-  "use multi-line literal").string()
+  ("basic or literal strings can't span over multiple lines, " +
+  "use their multi-line counterpart").string()
 
 primitive InvalidEscapeSequence
 fun string(): String iso^ => "invalid escape sequence".string()
@@ -56,8 +52,7 @@ fun string(): String iso^ => "invalid unicode escape code".string()
 
 type StringError is
   ( UnterminatedString
-  | MultiLineBasicStringNotAllowed
-  | MultiLineLiteralStringNotAllowed
+  | MultiLineStringNotAllowed
   | InvalidEscapeSequence
   | InvalidUnicodeEscapeCode )
 
@@ -197,7 +192,7 @@ class val _Integer is _Keyable
   fun string(): String iso^ =>
     ("an integer (" + value.string() + ")").string()
 
-  fun key(): _BareKey =>
+  fun key(): _BareKey val =>
     _BareKey(value.string())
 
 class val _String is _Keyable
@@ -209,7 +204,7 @@ class val _String is _Keyable
   fun string(): String iso^ =>
     ("a string (\"" + value.string() + "\")").string()
 
-  fun key(): _BareKey =>
+  fun key(): _BareKey val =>
     _BareKey(value)
 
 class val _Bool is _Keyable
@@ -221,7 +216,7 @@ class val _Bool is _Keyable
   fun string(): String iso^ =>
     ("a boolean (" + value.string() + ")").string()
 
-  fun key(): _BareKey =>
+  fun key(): _BareKey val =>
     _BareKey(value.string())
 
 primitive _End         fun string(): String iso^ => "EOF".string()
@@ -510,27 +505,93 @@ class _Lexer
       InvalidEscapeSequence
     end
 
-  fun ref lex_basic_string(cc: U8): (_String | LexerError) =>
-    let is_literal = cc == '\''
+  fun ref lex_triple_quote(is_basic: Bool): (Bool | U8 | LexerError) =>
+    // returns true when a triple quote is matched, false for an empty basic or
+    // literal string, otherwise returns the second char from the triplet, e.g.
+    // """ => true
+    // ''' => true
+    // "", => false
+    // ''a => false
+    // 'a' => a
+    // '"" => "
+    match next_char()
+    | '"' if is_basic =>
+      match peep_char()
+      | '"' => next_char(); true
+      | let _: U8 => '"'
+      | None => false
+      end
+    | '\'' if not is_basic =>
+      match peep_char()
+      | '\'' => next_char(); true
+      | let _: U8 => '\''
+      | None => false
+      end
+    | let nc: U8 => nc
+    | None => UnterminatedString
+    end
+
+  fun ref lex_string(is_basic: Bool): (_String | LexerError) =>
+    /*
+    // FIXME: This does not typecheck, we need more investigation
+    match lex_triple_quote(is_basic)
+    | true => lex_string_body('\0', is_basic, true)
+    | false => _String("")
+    | let nc: U8 => lex_string_body(nc, is_basic, false)
+    | let err: LexerError => err
+    end
+    */
+    var is_multiline: Bool = false
+    var cc: U8 = '\0'
+    match lex_triple_quote(is_basic)
+    | true => is_multiline = true
+    | false => return _String("")
+    | let nc: U8 => cc = nc
+    | let err: LexerError => return err
+    end
+    lex_string_body(cc, is_basic, is_multiline)
+
+  fun ref lex_string_body(cc: U8, is_basic: Bool, is_multiline: Bool)
+    : (_String | LexerError)
+  =>
     let str: String = recover
+      let quote: U8 = if is_basic then '"' else '\'' end
+      var read_next: Bool = is_multiline
+      var x: U8 = cc
       var temp: String ref = String()
       while true do
-        match next_char()
-        | let nc: U8 if (not is_literal) and is_escape_char(nc) =>
+        match if read_next then next_char() else x end
+        | let nc: U8 if is_basic and is_escape_char(nc) =>
           match lex_escape_sequence()
           | let value: U32 => temp.push_utf32(value)
           | let err: LexerError => return err
           end
-        | let nc: U8 if is_quote(nc) and (nc == cc) => break
-        | let nc: U8 if is_newline(nc) =>
-          if is_literal then
-            return MultiLineLiteralStringNotAllowed
+        | let nc: U8 if is_quote(nc) and (nc == quote) =>
+          if is_multiline then
+            match lex_triple_quote(is_basic)
+            | true => break // end of string
+            | false => temp.push(nc); temp.push(nc)
+            | let c: U8 =>
+              temp.push(nc)
+              read_next = false
+              x = c
+              continue
+            | let err: LexerError => return err
+            end
           else
-            return MultiLineBasicStringNotAllowed
+            // end of string
+            break
+          end
+        | let nc: U8 if is_newline(nc) =>
+          if is_multiline then
+            temp.push(nc)
+          else
+            return MultiLineStringNotAllowed
           end
         | let nc: U8 => temp.push(nc)
         | None => return UnterminatedString
         end
+        read_next = true
       end
       temp
     end
@@ -573,7 +634,7 @@ class _Lexer
         | let _: U8 | None => DecimalNumberExpected
         end
       | let nc: U8 if is_key_char(nc) => lex_key_or_boolean(nc)
-      | let nc: U8 if is_quote(nc) => lex_basic_string(nc)
+      | let nc: U8 if is_quote(nc) => lex_string(nc == '"')
       | let nc: U8 if is_comment(nc) => lex_comment()
       | let nc: U8 => lex_symbol(nc)
       | None => _End

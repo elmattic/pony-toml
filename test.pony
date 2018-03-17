@@ -36,13 +36,26 @@ actor Main is TestList
     test(_TestKeyQuotedNotEmpty)
 
     test(_TestStringBasic)
+    test(_TestStringBasicEmpty)
+    test(_TestStringBasicEmptyNoNewline)
     test(_TestStringBasicEscapeChar)
     test(_TestStringBasicUnicodeChar)
     test(_TestStringBasicNotTerminated)
-    test(_TestStringBasicMultiLine)
+    test(_TestStringBasicMultiLineNotAllowed)
     test(_TestStringBasicInvalidEscape)
     test(_TestStringBasicInvalidUnicode)
+    test(_TestStringBasicAsKey)
+
+    test(_TestStringBasicMultiline)
+    test(_TestStringBasicMultilineEmpty)
+    test(_TestStringBasicMultilineEmptyNoNewline)
+    test(_TestStringBasicMultilineEscapeChar)
+    test(_TestStringBasicMultilineUnterminated)
+
     test(_TestStringLiteral)
+    test(_TestStringLiteralEmpty)
+    test(_TestStringLiteralMultilineNewlineInside)   
+    test(_TestStringLiteralMultilineDoubleQuotes)     
 
     test(_TestIntegerZero)
     test(_TestIntegerOne)
@@ -433,6 +446,31 @@ class iso _TestStringBasic is UnitTest
         "a": "hello world"
       }""")
 
+class iso _TestStringBasicEmpty is UnitTest
+  fun name(): String => "string basic empty"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      a = ""
+      """,
+      """
+      {
+        "a": ""
+      }""")
+
+class iso _TestStringBasicEmptyNoNewline is UnitTest
+  fun name(): String => "string basic empty with no newline"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      a = """"",
+      """
+      {
+        "a": ""
+      }""")
+
 class iso _TestStringBasicEscapeChar is UnitTest
   fun name(): String => "string basic with an escape char"
 
@@ -469,7 +507,7 @@ class iso _TestStringBasicNotTerminated is UnitTest
       a = "hello world
       """)
 
-class iso _TestStringBasicMultiLine is UnitTest
+class iso _TestStringBasicMultiLineNotAllowed is UnitTest
   fun name(): String => "string basic that is multi-line"
 
   fun apply(h: TestHelper) =>
@@ -497,8 +535,118 @@ class iso _TestStringBasicInvalidUnicode is UnitTest
       a = "hello \uD800world"
       """)
 
+class iso _TestStringBasicAsKey is UnitTest
+  fun name(): String => "string basic as a key"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      ""= 0
+      """,
+      """
+      {
+        "": 0
+      }""")
+
+
+class iso _TestStringBasicMultiline is UnitTest
+  fun name(): String => "string basic multiline empty"
+
+  fun apply(h: TestHelper) =>
+    let qqq = "\"\"\""
+    Check(h,
+      """
+      a = """ + qqq + "hello" + qqq + """
+      """,
+      """
+      {
+        "a": "hello"
+      }""")
+
+class iso _TestStringBasicMultilineEmpty is UnitTest
+  fun name(): String => "string basic multiline empty"
+
+  fun apply(h: TestHelper) =>
+    let qqq = "\"\"\""
+    Check(h,
+      """
+      a = """ + qqq + qqq + """
+      """,
+      """
+      {
+        "a": ""
+      }""")
+
+class iso _TestStringBasicMultilineEmptyNoNewline is UnitTest
+  fun name(): String => "string basic multiline empty no newline"
+
+  fun apply(h: TestHelper) =>
+    let qqq = "\"\"\""
+    Check(h,
+      """
+      a = """ + qqq + qqq,
+      """
+      {
+        "a": ""
+      }""")
+
+class iso _TestStringBasicMultilineEscapeChar is UnitTest
+  fun name(): String => "string basic multiline escape char"
+
+  fun apply(h: TestHelper) =>
+    let qqq = "\"\"\""
+    Check(h,
+      """
+      a = """ + qqq + """\n""" + qqq + """
+      """,
+      """
+      {
+        "a": "
+      "
+      }""")
+
+class iso _TestStringLiteralMultilineNewlineInside is UnitTest
+  fun name(): String => "string literal multiline with a newline"
+
+  fun apply(h: TestHelper) =>
+    let qqq = "\"\"\""
+    Check(h,
+      """
+      a = '''hello
+      world'''
+      """,
+      """
+      {
+        "a": "hello
+      world"
+      }""")
+
+class iso _TestStringLiteralMultilineDoubleQuotes is UnitTest
+  fun name(): String => "string basic multiline double quotes"
+
+  fun apply(h: TestHelper) =>
+    let qqq = "\"\"\""
+    Check(h,
+      """
+      a = '''''&'''
+      """,
+      """
+      {
+        "a": "''&"
+      }""")
+
+class iso _TestStringBasicMultilineUnterminated is UnitTest
+  fun name(): String => "string basic multiline unterminated"
+
+  fun apply(h: TestHelper) =>
+    let qqq = "\"\"\""
+    Fail(h,
+      """
+      a = """ + qqq + "hello world" + """
+      """)
+
 class iso _TestStringLiteral is UnitTest
-  fun name(): String => "string literal"
+  fun name(): String => "string literal, example from github"
 
   fun apply(h: TestHelper) =>
     Check(h,
@@ -515,6 +663,19 @@ class iso _TestStringLiteral is UnitTest
         "winpath2": "\\ServerX\admin$\system32\",
         "quoted": "Tom "Dubs" Preston-Werner",
         "regex": "<\i\c*\s*>"
+      }""")
+
+class iso _TestStringLiteralEmpty is UnitTest
+  fun name(): String => "string literal empty"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      a = ''
+      """,
+      """
+      {
+        "a": ""
       }""")
 
 //
