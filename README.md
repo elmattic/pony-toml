@@ -4,14 +4,12 @@ Pony-based parser implementation for Tom's Obvious, Minimal Language.
 
 Right now values of the following types are not supported:
 
-- String types that are not basic
 - Float
 - Datetime
 - Array
 - Inline Table
 - Array of Tables
 
-Quoted and dotted keys are also not supported.
 That being said the goal is to be compliant with the v0.4.0 version of TOML and
 stay up to date as the specification evolves.
 

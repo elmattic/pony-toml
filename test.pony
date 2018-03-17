@@ -51,11 +51,13 @@ actor Main is TestList
     test(_TestStringBasicMultilineEmptyNoNewline)
     test(_TestStringBasicMultilineEscapeChar)
     test(_TestStringBasicMultilineUnterminated)
+    test(_TestStringBasicMultilineTrimmedNewline)
+    test(_TestStringBasicMultilineBackslash)
 
     test(_TestStringLiteral)
     test(_TestStringLiteralEmpty)
-    test(_TestStringLiteralMultilineNewlineInside)   
-    test(_TestStringLiteralMultilineDoubleQuotes)     
+    test(_TestStringLiteralMultilineNewlineInside)
+    test(_TestStringLiteralMultilineDoubleQuotes)
 
     test(_TestIntegerZero)
     test(_TestIntegerOne)
@@ -644,6 +646,42 @@ class iso _TestStringBasicMultilineUnterminated is UnitTest
       """
       a = """ + qqq + "hello world" + """
       """)
+
+class iso _TestStringBasicMultilineTrimmedNewline is UnitTest
+  fun name(): String => "string basic multiline trimmed newline"
+
+  fun apply(h: TestHelper) =>
+    let qqq = "\"\"\""
+    Check(h,
+      """
+      a = '''
+      Roses are red
+      Violets are blue'''
+      """,
+      """
+      {
+        "a": "Roses are red
+      Violets are blue"
+      }""")
+
+class iso _TestStringBasicMultilineBackslash is UnitTest
+  fun name(): String => "string basic multiline backlash"
+
+  fun apply(h: TestHelper) =>
+    let qqq = "\"\"\""
+    Check(h,
+      """
+      a = """ + qqq + """
+                      The quick brown \
+
+
+                        fox jumps over \
+                          the lazy dog.""" + qqq + """
+      """,
+      """
+      {
+        "a": "The quick brown fox jumps over the lazy dog."
+      }""")
 
 class iso _TestStringLiteral is UnitTest
   fun name(): String => "string literal, example from github"

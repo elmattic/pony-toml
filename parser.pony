@@ -265,11 +265,11 @@ class _Lexer
 
   fun current(): (USize, USize) => _current
 
-  fun is_whitespace(value: U8): Bool =>
-    (value == ' ') or (value == '\t')
-
   fun is_newline(value: U8): Bool =>
     (value == '\n')
+
+  fun is_whitespace(value: U8): Bool =>
+    (value == ' ') or (value == '\t') or is_newline(value)
 
   fun is_comment(value: U8): Bool =>
     (value == '#')
@@ -552,13 +552,22 @@ class _Lexer
       let is_basic = quote == '"'
       var read_next: Bool = is_multiline
       var x: U8 = cc
+      var trim_first_newline = true
+      var trim_whitespace = false
       var temp: String ref = String()
       while true do
         match if read_next then next_char() else x end
         | let nc: U8 if is_basic and is_escape_char(nc) =>
-          match lex_escape_sequence()
-          | let value: U32 => temp.push_utf32(value)
-          | let err: LexerError => return err
+          match peep_char()
+          | None => UnterminatedString
+          | let pc: U8 if is_newline(pc) =>
+            next_char()
+            trim_whitespace = true
+          else
+            match lex_escape_sequence()
+            | let value: U32 => temp.push_utf32(value)
+            | let err: LexerError => return err
+            end
           end
         | quote =>
           if is_multiline then
@@ -576,13 +585,18 @@ class _Lexer
             // end of string
             break
           end
+        | let nc: U8 if is_whitespace(nc) and trim_whitespace => None
         | let nc: U8 if is_newline(nc) =>
           if is_multiline then
-            temp.push(nc)
+            if (temp.size() == 0) and trim_first_newline then
+              trim_first_newline = false
+            else
+              temp.push(nc)
+            end
           else
             return MultiLineStringNotAllowed
           end
-        | let nc: U8 => temp.push(nc)
+        | let nc: U8 => trim_whitespace = false; temp.push(nc)
         | None => return UnterminatedString
         end
         read_next = true
