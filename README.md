@@ -6,7 +6,6 @@ Right now values of the following types are not supported:
 
 - Float
 - Datetime
-- Array
 - Inline Table
 - Array of Tables
 
@@ -30,6 +29,8 @@ actor Main
       name = "Tom Preston-Werner"
 
       [database]
+      server = "192.168.1.1"
+      ports = [ 8001, 8001, 8002 ]
       connection_max = 5000
       enabled = true
       """)

@@ -80,6 +80,10 @@ primitive ValueIsNotATable
 fun string(): String iso^ =>
   "a value in current dotted key is not a table".string()
 
+primitive ArrayHasMixDataTypes
+fun string(): String iso^ =>
+  "data types may not be mixed in arrays".string()
+
 class val UnexpectedToken
   let _value: _Token
   let _expected: String
@@ -94,6 +98,7 @@ class val UnexpectedToken
 type ParserError is
   ( KeyOrTableDefinedMoreThanOnce
   | ValueIsNotATable
+  | ArrayHasMixDataTypes
   | UnexpectedToken )
 
 class Error
@@ -224,6 +229,7 @@ primitive _LeftSquare  fun string(): String iso^ => "‘[’".string()
 primitive _RightSquare fun string(): String iso^ => "‘]’".string()
 primitive _Equals      fun string(): String iso^ => "‘=’".string()
 primitive _Dot         fun string(): String iso^ => "‘.’".string()
+primitive _Comma       fun string(): String iso^ => "‘,’".string()
 primitive _Whitespace  fun string(): String iso^ => "a whitespace".string()
 primitive _Newline     fun string(): String iso^ => "a newline".string()
 
@@ -237,6 +243,7 @@ type _Token is
   | _RightSquare
   | _Equals
   | _Dot
+  | _Comma
   | _Whitespace
   | _Newline )
 
@@ -624,6 +631,7 @@ class _Lexer
     | ']' => _RightSquare
     | '=' => _Equals
     | '.' => _Dot
+    | ',' => _Comma
     | ' ' | '\t' => _Whitespace
     | '\n' =>
       _next = (_next._1 + 1, 0)
@@ -653,6 +661,21 @@ class _Lexer
       token
     end
 
+class val _Appender
+fun append_with_indent(value: TOMLValue box, indent: String, result: String ref)
+  : None
+=>
+  match value
+  | let str: String box =>
+    result.append("\"")
+    result.append(str.string())
+    result.append("\"")
+  | let table: TOMLTable box => table._append_with_indent(indent, result)
+  | let array: TOMLArray box => array._append_with_indent(indent, result)
+  else
+    result.append(value.string())
+  end
+
 class TOMLTable
   var map: Map[String, TOMLValue]
 
@@ -660,37 +683,29 @@ class TOMLTable
     map = Map[String, TOMLValue]()
 
   fun string(): String iso^ =>
-    _string_with_indent("")
-
-  fun _string_with_indent(indent_str: String): String iso^ =>
-    let tab = "  "
     var result: String ref = String()
+    _append_with_indent("", result)
+    result.string()
+
+  fun _append_with_indent(indent: String, result: String ref): String iso^ =>
+    let tab = "  "
     var i: USize = 0
     result.append("{\n")
     for pair in map.pairs() do
-      result.append(indent_str)
+      result.append(indent)
       result.append(tab)
       result.append("\"")
       result.append(pair._1.string())
       result.append("\"")
       result.append(": ")
-      match pair._2
-      | let str: String =>
-        result.append("\"")
-        result.append(str.string())
-        result.append("\"")
-      | let table: TOMLTable box =>
-        result.append(table._string_with_indent(indent_str + tab))
-      else
-        result.append(pair._2.string())
-      end
-      if i < (map.size()-1) then
+      _Appender.append_with_indent(pair._2, indent + tab, result)
+      if i < (map.size() - 1) then
         result.append(",")
       end
       result.append("\n")
       i = i + 1
     end
-    result.append(indent_str)
+    result.append(indent)
     result.append("}")
     result.string()
 
@@ -698,7 +713,27 @@ class TOMLArray
   var array: Array[TOMLValue]
 
   fun string(): String iso^ =>
-    "".string()
+    var result: String ref = String()
+    _append_with_indent("", result)
+    result.string()
+
+  fun _append_with_indent(indent: String, result: String ref): String iso^ =>
+    let tab = "  "
+    var i: USize = 0
+    result.append("[\n")
+    for value in array.values() do
+      result.append(indent)
+      result.append(tab)
+      _Appender.append_with_indent(value, indent + tab, result)
+      if i < (array.size() - 1) then
+        result.append(",")
+      end
+      result.append("\n")
+      i = i + 1
+    end
+    result.append(indent)
+    result.append("]")
+    result.string()
 
   new create() =>
     array = Array[TOMLValue]
@@ -716,6 +751,7 @@ class Parser
   var _parsing_done: Bool = false
   var _error: (None | Error) = None
   let _root_level: USize = 1 // using _table_stack.size() do NOT work
+  var _ahead: ((_Token | LexerError) | None) = None
 
   new from_file(file: File ref) =>
     _lexer = _Lexer.from_file(file)
@@ -724,6 +760,27 @@ class Parser
   new from_string(string: String) =>
     _lexer = _Lexer.from_string(string)
     _table_stack.push(TOMLTable.create())
+
+  fun ref _next_token(): (_Token | LexerError) =>
+    match _ahead
+    | None => _lexer.next()
+    | let token: (_Token | LexerError) =>
+      _ahead = None
+      token
+    end
+
+  fun ref _look_ahead(): (_Token | LexerError) =>
+    match _ahead
+    | None =>
+      let token = _lexer.next()
+      _ahead = token
+      token
+    else
+      try
+        Assert(false, "only one token look ahead is possible")?
+      end
+      _End
+    end
 
   fun ref _error_expected(result: (_Token | LexerError), values: String)
     : Error
@@ -750,6 +807,7 @@ class Parser
       | _RightSquare => match rhs | _RightSquare => true else false end
       | _Equals => match rhs | _Equals => true else false end
       | _Dot => match rhs | _Dot => true else false end
+      | _Comma => match rhs | _Comma => true else false end
       | _Whitespace => match rhs | _Whitespace => true else false end
       | _Newline => match rhs | _Newline => true else false end
       end
@@ -822,7 +880,7 @@ class Parser
     end
 
   fun ref _parse_table(): (None | Error) =>
-    let token = _lexer.next()
+    let token = _next_token()
     match token
     | let keyable: _Keyable val =>
       let result =
@@ -881,33 +939,66 @@ class Parser
       _insert_value_rec(dotted, value, 0)
     end
 
-  fun ref _parse_value(key: _Key): (None | Error) =>
-    let token = _lexer.next()
-    let result: (TOMLValue | Error) =
-      match token
-      | let int: _Integer => int.value
-      | let bool: _Bool => bool.value
-      | let str: _String => str.value
+  fun ref _parse_array(): (TOMLArray | Error) =>
+    let is_equal = {(lhs: TOMLValue, rhs: TOMLValue): Bool =>
+      match lhs
+      | let _: I64 => match rhs | let _: I64 => true else false end
+      | let _: Bool => match rhs | let _: Bool => true else false end
+      | let _: String => match rhs | let _: String => true else false end
+      | let _: TOMLTable => match rhs | let _: TOMLTable => true else false end
+      | let _: TOMLArray => match rhs | let _: TOMLArray => true else false end
+      end
+    }
+    let arr: TOMLArray = TOMLArray.create()
+    var first: (TOMLValue | None) = None
+    while true do
+      match _look_ahead()
+      | _RightSquare => _next_token(); break
+      | let err: LexerError => Error(err, _lexer)
       else
-        _error_expected(token, "a valid TOML value")
+        match _parse_value()
+        | let value: TOMLValue =>
+          match first
+          | None => first = value
+          | let lhs: TOMLValue =>
+            if not is_equal(lhs, value) then
+              return Error(ArrayHasMixDataTypes, _lexer)
+            end
+          end
+          arr.array.push(value)
+          let token = _next_token()
+          match _error_expected_if(token, [_Comma; _RightSquare])
+          | None =>
+            match token
+            | _RightSquare => break
+            end
+          | let err: Error => return err
+          end
+        | let err: Error => return err
+        end
       end
-    match result
-    | let value: TOMLValue =>
-      match _insert_value(key, value)
-      | None => _error_expected_if(_lexer.next(), [_Newline; _End])
-      | let err: ParserError => Error(err, _lexer)
-      end
-    | let err: Error => err
+    end
+    arr
+
+  fun ref _parse_value(): (TOMLValue | Error) =>
+    let token = _next_token()
+    match token
+    | let int: _Integer => int.value
+    | let bool: _Bool => bool.value
+    | let str: _String => str.value
+    | _LeftSquare => _parse_array()
+    else
+      _error_expected(token, "a valid TOML value")
     end
 
   fun ref _parse_key(bare: _BareKey, is_table: Bool = false): (_Key | Error) =>
     let names: Array[String] iso = recover Array[String] end
     names.push(bare.name)
     while true do
-      let token = _lexer.next()
+      let token = _next_token()
       match token
       | _Dot =>
-        let token2 = _lexer.next()
+        let token2 = _next_token()
         match token2
         | let keyable: _Keyable val => names.push(keyable.key().name)
         else
@@ -925,14 +1016,22 @@ class Parser
 
   fun ref _parse_key_value(bare: _BareKey): (None | Error) =>
     match _parse_key(bare)
-    | let key: _Key => _parse_value(key)
+    | let key: _Key =>
+      match _parse_value()
+      | let value: TOMLValue =>
+        match _insert_value(key, value)
+        | None => _error_expected_if(_next_token(), [_Newline; _End])
+        | let err: ParserError => Error(err, _lexer)
+        end
+      | let err: Error => err
+      end
     | let err: Error => err
     end
 
   fun ref _parse_top_level(): (None | Error) =>
     var result: (None | Error) = None
     while true do
-      let token = _lexer.next()
+      let token = _next_token()
       result =
         match token
         | let keyable: _Keyable val => _parse_key_value(keyable.key())
@@ -976,6 +1075,8 @@ actor _Main
       name = "Tom Preston-Werner"
 
       [database]
+      server = "192.168.1.1"
+      ports = [ 8001, 8001, 8002 ]
       connection_max = 5000
       enabled = true
 

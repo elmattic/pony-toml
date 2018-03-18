@@ -97,6 +97,9 @@ actor Main is TestList
     test(_TestTableDefinedAsKey)
     test(_TestTableDottedDefinedAsKey)
 
+    test(_TestArray)
+    test(_TestArrayFail)
+
 class Check
   fun apply(h: TestHelper, input: String, reference: String) =>
     let parser = Parser.from_string(input)
@@ -1188,3 +1191,59 @@ class iso _TestTableDottedDefinedAsKey is UnitTest
         }
       }""")
 
+class iso _TestArray is UnitTest
+  fun name(): String => "array tests"
+
+    fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      arr1 = []
+      arr2 = [ 1 ]
+      arr3 = [ "red", "green", "blue" ]
+      arr4 = [ [ 1, 2 ], [3, 4, 5] ]
+      arr5 = [ [ 1, 2 ], ["a", "b", "c"], ]
+      """,
+      """
+      {
+        "arr1": [
+        ],
+        "arr2": [
+          1
+        ],
+        "arr5": [
+          [
+            1,
+            2
+          ],
+          [
+            "a",
+            "b",
+            "c"
+          ]
+        ],
+        "arr4": [
+          [
+            1,
+            2
+          ],
+          [
+            3,
+            4,
+            5
+          ]
+        ],
+        "arr3": [
+          "red",
+          "green",
+          "blue"
+        ]
+      }""")
+
+class iso _TestArrayFail is UnitTest
+  fun name(): String => "array mix data types"
+
+    fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      a = [ true, 1 ]
+      """)
