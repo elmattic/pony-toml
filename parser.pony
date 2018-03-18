@@ -641,25 +641,29 @@ class _Lexer
     end
 
   fun ref next(): (_Token | LexerError) =>
-    let token =
-      match next_char()
-      | let nc: U8 if is_decimal(nc) => lex_integer(nc)
-      | let nc: U8 if is_sign(nc) =>
+    while true do
+      let token =
         match next_char()
-        | let nnc: U8 if is_decimal(nnc) => lex_integer(nnc, true, nc == '+')
-        | let _: U8 | None => DecimalNumberExpected
+        | let nc: U8 if is_decimal(nc) => lex_integer(nc)
+        | let nc: U8 if is_sign(nc) =>
+          match next_char()
+          | let nnc: U8 if is_decimal(nnc) => lex_integer(nnc, true, nc == '+')
+          | let _: U8 | None => DecimalNumberExpected
+          end
+        | let nc: U8 if is_key_char(nc) => lex_key_or_boolean(nc)
+        | let nc: U8 if is_quote(nc) => lex_string(nc)
+        | let nc: U8 if is_comment(nc) => lex_comment()
+        | let nc: U8 => lex_symbol(nc)
+        | None => _End
         end
-      | let nc: U8 if is_key_char(nc) => lex_key_or_boolean(nc)
-      | let nc: U8 if is_quote(nc) => lex_string(nc)
-      | let nc: U8 if is_comment(nc) => lex_comment()
-      | let nc: U8 => lex_symbol(nc)
-      | None => _End
+      match token
+      | _Whitespace => continue
+      else
+        return token
       end
-    match token
-    | _Whitespace => next() // TODO: don't rely on tco, use a loop instead
-    else
-      token
     end
+    // unreachable
+    _End
 
 class val _Appender
 fun append_with_indent(value: TOMLValue box, indent: String, result: String ref)
