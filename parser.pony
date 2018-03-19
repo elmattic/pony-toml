@@ -212,7 +212,7 @@ class Parser
         let bare = _BareKey(dotted.names(index)?)
         match _push_table(bare, true)
         | None => _push_table_rec(dotted, index + 1)
-        | let err: ParserError => return err
+        | let err: ParserError => err
         end
       else
         let bare = _BareKey(dotted.names(index)?)
