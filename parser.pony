@@ -147,6 +147,8 @@ class Parser
       | _End => match rhs | _End => true else false end
       | _LeftBracket => match rhs | _LeftBracket => true else false end
       | _RightBracket => match rhs | _RightBracket => true else false end
+      | _LeftBrace => match rhs | _LeftBrace => true else false end
+      | _RightBrace => match rhs | _RightBrace => true else false end
       | _Equals => match rhs | _Equals => true else false end
       | _Dot => match rhs | _Dot => true else false end
       | _Comma => match rhs | _Comma => true else false end
@@ -322,6 +324,39 @@ class Parser
     end
     arr
 
+  fun ref _parse_inline_table(): (TOMLTable | Error) =>
+    let new_table = TOMLTable.create()
+    _table_stack.push(new_table)
+    while true do
+      let token = _next_token()
+      match token
+      | let keyable: _Keyable val =>
+        match _parse_key_value(keyable.key())
+        | None =>
+          let token2 = _next_token()
+          match _error_expected_if(token2, [_Comma; _RightBrace])
+          | None =>
+            match token2
+            | _RightBrace => break
+            end
+          | let err: Error => return err
+          end
+        | let err: Error => return err
+        end
+      | _RightBrace => break
+      | _Newline => return Error(NewlineInInlineTable, _lexer)
+      else
+        return _error_expected(token, "key value pairs or ‘}’")
+      end
+    end
+    try
+      _table_stack.pop()?
+    else
+      // unreachable
+      None
+    end
+    new_table
+
   fun ref _parse_value(): (TOMLValue | Error) =>
     let token = _next_token()
     match token
@@ -329,6 +364,7 @@ class Parser
     | let bool: _Bool => bool.value
     | let str: _String => str.value
     | _LeftBracket => _parse_array()
+    | _LeftBrace => _parse_inline_table()
     else
       _error_expected(token, "a valid TOML value")
     end
@@ -362,7 +398,7 @@ class Parser
       match _parse_value()
       | let value: TOMLValue =>
         match _insert_value(key, value)
-        | None => _error_expected_if(_next_token(), [_Newline; _End])
+        | None => None
         | let err: ParserError => Error(err, _lexer)
         end
       | let err: Error => err
@@ -376,7 +412,11 @@ class Parser
       let token = _next_token()
       result =
         match token
-        | let keyable: _Keyable val => _parse_key_value(keyable.key())
+        | let keyable: _Keyable val =>
+          match _parse_key_value(keyable.key())
+          | None => _error_expected_if(_next_token(), [_Newline; _End])
+          | let err: Error => err
+          end
         | _LeftBracket => _parse_table()
         | _Newline => continue
         | _End => break

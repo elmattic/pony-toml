@@ -100,6 +100,9 @@ actor Main is TestList
     test(_TestArray)
     test(_TestArrayFail)
 
+    test(_TestInlineTable)
+    test(_TestInlineTableFail)
+
 class Check
   fun apply(h: TestHelper, input: String, reference: String) =>
     let parser = Parser.from_string(input)
@@ -1246,4 +1249,41 @@ class iso _TestArrayFail is UnitTest
     Fail(h,
       """
       a = [ true, 1 ]
+      """)
+
+class iso _TestInlineTable is UnitTest
+  fun name(): String => "inline table test"
+
+    fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      name = { first = "Tom", last = "Preston-Werner" }
+      point = { x = 1, y = 2 }
+      animal = { type.name = "pug" }
+      """,
+      """
+      {
+        "animal": {
+          "type": {
+            "name": "pug"
+          }
+        },
+        "point": {
+          "x": 1,
+          "y": 2
+        },
+        "name": {
+          "first": "Tom",
+          "last": "Preston-Werner"
+        }
+      }""")
+
+class iso _TestInlineTableFail is UnitTest
+  fun name(): String => "inline table with a newline"
+
+    fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      name = { first = "Tom",
+      last = "Preston-Werner" }
       """)

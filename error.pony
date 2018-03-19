@@ -81,6 +81,10 @@ primitive ArrayHasMixDataTypes
 fun string(): String iso^ =>
   "data types may not be mixed in arrays".string()
 
+primitive NewlineInInlineTable
+fun string(): String iso^ =>
+  "newlines are not allowed in inline tables".string()
+
 class val UnexpectedToken
   let _value: _Token
   let _expected: String
@@ -96,6 +100,7 @@ type ParserError is
   ( KeyOrTableDefinedMoreThanOnce
   | ValueIsNotATable
   | ArrayHasMixDataTypes
+  | NewlineInInlineTable
   | UnexpectedToken )
 
 class Error

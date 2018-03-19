@@ -6,7 +6,6 @@ Right now values of the following types are not supported:
 
 - Float
 - Datetime
-- Inline Table
 - Array of Tables
 
 That being said the goal is to be compliant with the v0.4.0 version of TOML and

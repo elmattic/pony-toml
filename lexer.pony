@@ -74,6 +74,8 @@ class val _Bool is _Keyable
 primitive _End          fun string(): String iso^ => "EOF".string()
 primitive _LeftBracket  fun string(): String iso^ => "‘[’".string()
 primitive _RightBracket fun string(): String iso^ => "‘]’".string()
+primitive _LeftBrace    fun string(): String iso^ => "‘{’".string()
+primitive _RightBrace   fun string(): String iso^ => "‘}’".string()
 primitive _Equals       fun string(): String iso^ => "‘=’".string()
 primitive _Dot          fun string(): String iso^ => "‘.’".string()
 primitive _Comma        fun string(): String iso^ => "‘,’".string()
@@ -88,6 +90,8 @@ type _Token is
   | _End
   | _LeftBracket
   | _RightBracket
+  | _LeftBrace
+  | _RightBrace
   | _Equals
   | _Dot
   | _Comma
@@ -476,6 +480,8 @@ class _Lexer
     match cc
     | '[' => _LeftBracket
     | ']' => _RightBracket
+    | '{' => _LeftBrace
+    | '}' => _RightBrace
     | '=' => _Equals
     | '.' => _Dot
     | ',' => _Comma
