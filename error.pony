@@ -1,36 +1,32 @@
 use "files"
 
-primitive UnderscoreAfterBasePrefixNotAllowed
-fun string(): String iso^ =>
-  "underscores are not allowed between the base prefix and the value".string()
-
 primitive UnderscoreNotSurroundedByDigits
 fun string(): String iso^ =>
   "underscores must be surrounded by at least one digit on each side".string()
 
-primitive DecimalNumberExpected
+primitive DecimalIntegerExpected
 fun string(): String iso^ =>
-  "decimal number expected right after the sign".string()
-
-primitive LeadingZerosInDecimalNotAllowed
-fun string(): String iso^ =>
-  "leading zeros are not allowed in decimal numbers".string()
-
-primitive SignPrefixWithBasePrefixNotAllowed
-fun string(): String iso^ =>
-  "only decimal numbers may be prefixed with a plus or minus sign".string()
+  "decimal integer expected right after the sign".string()
 
 primitive TooLargeToBeRepresentedIn64Bit
 fun string(): String iso^ =>
   "too large to be represented in the 64 bit (signed long) range".string()
 
-type IntegerError is
-  ( UnderscoreAfterBasePrefixNotAllowed
-  | UnderscoreNotSurroundedByDigits
-  | DecimalNumberExpected
-  | LeadingZerosInDecimalNotAllowed
-  | SignPrefixWithBasePrefixNotAllowed
-  | TooLargeToBeRepresentedIn64Bit )
+primitive LeadingZerosNotAllowed
+fun string(): String iso^ =>
+  "leading zeros are not allowed in floats or decimal integers".string()
+
+primitive FractionalPartExpected
+fun string(): String iso^ =>
+  "fractional part expected after a decimal point".string()
+
+primitive ExponentPartExpected
+fun string(): String iso^ =>
+  "exponent part expected after an ‘E’ (upper or lower case)".string()
+
+primitive SignedValueExpected
+fun string(): String iso^ =>
+  "float, inf, nan or decimal integer expected after sign".string()
 
 primitive UnterminatedString
 fun string(): String iso^ =>
@@ -65,7 +61,13 @@ class val InvalidChar
     ("invalid character ‘" + str + "’").string()
 
 type LexerError is
-  ( IntegerError
+  ( UnderscoreNotSurroundedByDigits
+  | DecimalIntegerExpected
+  | TooLargeToBeRepresentedIn64Bit
+  | LeadingZerosNotAllowed
+  | FractionalPartExpected
+  | ExponentPartExpected
+  | SignedValueExpected
   | StringError
   | InvalidChar )
 

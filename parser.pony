@@ -82,6 +82,7 @@ class TOMLArray
 
 type TOMLValue is
   ( I64
+  | F64
   | Bool
   | String
   | TOMLTable
@@ -142,6 +143,7 @@ class Parser
       match lhs
       | let _: _Key => match rhs | let _: _Key => true else false end
       | let _: _Integer => match rhs | let _: _Integer => true else false end
+      | let _: _Float => match rhs | let _: _Float => true else false end
       | let _: _String => match rhs | let _: _String => true else false end
       | let _: _Bool => match rhs | let _: _Bool => true else false end
       | _End => match rhs | _End => true else false end
@@ -287,6 +289,7 @@ class Parser
     let is_equal = {(lhs: TOMLValue, rhs: TOMLValue): Bool =>
       match lhs
       | let _: I64 => match rhs | let _: I64 => true else false end
+      | let _: F64 => match rhs | let _: F64 => true else false end
       | let _: Bool => match rhs | let _: Bool => true else false end
       | let _: String => match rhs | let _: String => true else false end
       | let _: TOMLTable => match rhs | let _: TOMLTable => true else false end
@@ -361,6 +364,7 @@ class Parser
     let token = _next_token()
     match token
     | let int: _Integer => int.value
+    | let flt: _Float => flt.value
     | let bool: _Bool => bool.value
     | let str: _String => str.value
     | _LeftBracket => _parse_array()

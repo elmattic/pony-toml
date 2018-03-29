@@ -47,6 +47,42 @@ class val _Integer is _Keyable
   fun key(): _BareKey val =>
     _BareKey(value.string())
 
+class val _FloatEncoder
+  let sign_offset: U64 = 63
+  let exp_offset: U64 = 52
+  let exp_bias: U64 = 1023
+
+  fun msb(value: U64): U64 =>
+    var temp = value
+    var i: U64 = 0
+    while i < value.bitwidth() do
+      if temp > 0 then
+        temp = temp >> 1
+        i = i + 1
+      else
+        break
+      end
+    end
+    i
+
+  fun encode(positive: Bool, exponent: I64, integer: Array[U8]): F64 =>
+    0.0
+
+  fun inf(positive: Bool): F64 =>
+    0.0
+
+  fun nan(positive: Bool): F64 =>
+    0.0
+
+class val _Float
+  let value: F64
+
+  new val create(value': F64) =>
+    value = value'
+
+  fun string(): String iso^ =>
+    ("a float (" + value.string() + ")").string()
+
 class val _String is _Keyable
   let value: String
 
@@ -84,6 +120,7 @@ primitive _Newline      fun string(): String iso^ => "a newline".string()
 
 type _Token is
   ( _Integer
+  | _Float
   | _String
   | _Bool
   | _Key
@@ -198,61 +235,6 @@ class _Lexer
     _next = (_current._1, _current._2 + 1)
     value
 
-  fun ref lex_base_prefix(cc: U8): (_BasePrefix | None) =>
-    if cc == '0' then
-      match peep_char()
-      | 'x' | 'X' => next_char(); _Hex
-      | 'o' | 'O' => next_char(); _Octal
-      | 'b' | 'B' => next_char(); _Binary
-      else
-        None
-      end
-    else
-      None
-    end
-
-  fun ref lex_integer_base(
-    cc: U8,
-    is_from_base: {(U8): Bool},
-    to_base: {(U64, U8): U64},
-    lex_decimal: Bool = false)
-    : (U64 | LexerError)
-  =>
-    var value: U64 = if lex_decimal then U64.from[U8](cc - '0') else 0 end
-    var last_underscore: Bool = false
-    while true do
-      match peep_char()
-      | let nc: U8 if is_from_base(nc) =>
-        next_char()
-        if not lex_decimal or (cc != '0') then
-          let previous = value
-          value = to_base(value, nc)
-          if (previous != 0) and (value <= previous) then
-            return TooLargeToBeRepresentedIn64Bit
-          end
-          last_underscore = false
-        else
-          return LeadingZerosInDecimalNotAllowed
-        end
-      | let nc: U8 if nc == '_' =>
-          next_char()
-        if value == 0 then
-          return UnderscoreAfterBasePrefixNotAllowed
-        elseif not last_underscore then
-          last_underscore = true
-          continue
-        else
-          return UnderscoreNotSurroundedByDigits
-        end
-      | let _: U8 | None => break
-      end
-    end
-    if last_underscore then
-      UnderscoreNotSurroundedByDigits
-    else
-      value
-    end
-
   fun to_hex(value: U64, cc: U8): U64 =>
     (value * 16) + (U64.from[U8](cc - '0') and 15) +
     if (cc >= 'A') or (cc >= 'a') then 9 else 0 end
@@ -270,43 +252,179 @@ class _Lexer
   fun to_decimal(value: U64, cc: U8): U64 =>
     (value * 10) + U64.from[U8](cc - '0')
 
-  fun ref lex_integer(cc: U8, sign_prefix: Bool = false, is_pos: Bool = true)
-    : (_Integer | LexerError)
+  fun ref lex_integer_base(
+    cc: U8,
+    is_base: {(U8): Bool},
+    to_base: {(U64, U8): U64},
+    decimal: Bool = false)
+    : (U64 | LexerError)
   =>
-    let base_prefix = lex_base_prefix(cc)
+    var value: U64 = if decimal then U64.from[U8](cc - '0') else 0 end
+    var last_underscore: Bool = true
+    while true do
+      match peep_char()
+      | let nc: U8 if is_base(nc) =>
+        next_char()
+        if not decimal or (cc != '0') then
+          let previous = value
+          value = to_base(value, nc)
+          if (previous != 0) and (value <= previous) then
+            return TooLargeToBeRepresentedIn64Bit
+          end
+          last_underscore = false
+        else
+          return LeadingZerosNotAllowed
+        end
+      | '_' if not last_underscore => next_char(); last_underscore = true
+      | '_' => next_char(); return UnderscoreNotSurroundedByDigits
+      | let _: U8 | None => break
+      end
+    end
+    if last_underscore then
+      UnderscoreNotSurroundedByDigits
+    else
+      value
+    end
+
+  fun ref lex_base_prefix(cc: U8): (_BasePrefix | None) =>
+    if cc == '0' then
+      match peep_char()
+      | 'x' | 'X' => next_char(); _Hex
+      | 'o' | 'O' => next_char(); _Octal
+      | 'b' | 'B' => next_char(); _Binary
+      else
+        None
+      end
+    else
+      None
+    end
+
+  fun ref lex_number(nc: U8) : (_Integer | _Float | LexerError) =>
     let result =
-      match base_prefix
+      match lex_base_prefix(nc)
       | _Hex => lex_integer_base(0, this~is_hex(), this~to_hex())
       | _Octal => lex_integer_base(0, this~is_octal(), this~to_octal())
       | _Binary => lex_integer_base(0, this~is_binary(), this~to_binary())
-      | None => lex_integer_base(cc, this~is_decimal(), this~to_decimal(), true)
+      | None => None
       end
     match result
-    | let value: U64 =>
-      match base_prefix
-      | None =>
-        let max_value: U64 = U64.from[I64](I64.max_value())
-        if is_pos then
-          if value <= max_value then
-            _Integer(I64.from[U64](value))
-          else
-            TooLargeToBeRepresentedIn64Bit
-          end
-        else
-          if value <= (max_value + 1) then
-            _Integer(-I64.from[U64](value))
-          else
-            TooLargeToBeRepresentedIn64Bit
-          end
-        end
-      | let _: _BasePrefix if not sign_prefix => _Integer(I64.from[U64](value))
+    | let value: U64 => _Integer(value.i64())
+    | None => lex_float_or_decimal(nc, true)
+    | let err: LexerError => err
+    end
+
+  fun ref lex_sign(): Bool =>
+    match peep_char()
+    | '-' => next_char(); false
+    | '+' => next_char(); true
+    | let _: U8 | None => true
+    end
+
+  fun ref i64(value: U64, positive: Bool): (I64 | None) =>
+    let in_bounds: Bool =
+      if positive then
+        value <= I64.max_value().u64()
       else
-        SignPrefixWithBasePrefixNotAllowed
+        value <= -I64.min_value().u64()
+      end
+    if in_bounds then
+      if positive then value.i64() else -value.i64() end
+    end
+
+  fun ref lex_decimal(nc: U8, positive: Bool): (_Integer | LexerError) =>
+    match lex_integer_base(nc, this~is_decimal(), this~to_decimal(), true)
+    | let value: U64 =>
+      match i64(value, positive)
+      | let signed: I64 => _Integer(signed)
+      | None => TooLargeToBeRepresentedIn64Bit
       end
     | let err: LexerError => err
     end
 
-  fun ref lex_key_or_boolean(cc: U8): (_Key | _Bool) =>
+  fun ref lex_float_exponent(): (_Integer | LexerError) =>
+    let positive: Bool = lex_sign()
+    match next_char()
+    | let nc: U8 if is_decimal(nc) => lex_decimal(nc, positive)
+    else
+      return ExponentPartExpected
+    end
+
+  fun ref lex_float_or_decimal(nc: U8, positive: Bool)
+    : (_Float | _Integer | LexerError)
+  =>
+    let data = Array[U8]()
+    var leading_zero = (nc == '0')
+    var last_underscore = false
+    var decimal_point = false
+    var exponent: I64 = 0
+    var explicit_exp: Bool = false
+    data.push(nc)
+    while true do
+      match peep_char()
+      | let pc: U8 if is_decimal(pc) =>
+        next_char()
+        if not leading_zero then
+          data.push(pc)
+          last_underscore = false
+          leading_zero = false
+          if decimal_point then
+            exponent = exponent - 1
+          end
+        else
+          return LeadingZerosNotAllowed
+        end
+      | '_' if not last_underscore => next_char(); last_underscore = true
+      | '_' => next_char(); return UnderscoreNotSurroundedByDigits
+      | '.' if not decimal_point =>
+        next_char()
+        leading_zero = false
+        decimal_point = true
+      | '.' => break
+      | 'e' | 'E' =>
+        explicit_exp = true
+        next_char()
+        match lex_float_exponent()
+        | let int: _Integer => exponent = exponent + int.value
+        | let err: LexerError => return err
+        end
+      | let _: U8 | None => break // FIXME: don't forget the "let _: U8" part
+      end
+    end
+    if last_underscore then
+      return UnderscoreNotSurroundedByDigits
+    end
+    if decimal_point or explicit_exp then
+      _Float(_FloatEncoder.encode(positive, exponent, data))
+    else
+      // TODO: use lex_decimal via push/pop lexer state?
+      var value: U64 = 0
+      for i in data.values() do
+        value = to_decimal(value, i)
+      end
+      match i64(value, positive)
+      | let signed: I64 => _Integer(signed)
+      | None => TooLargeToBeRepresentedIn64Bit
+      end
+    end
+
+  fun ref lex_signed_number(nc: U8): (_Integer | _Float | LexerError) =>
+    let positive = (nc == '+')
+    match peep_char()
+    | let pc: U8 if is_decimal(pc) =>
+      next_char()
+      lex_float_or_decimal(pc, positive)
+    | let pc: U8 if is_alpha(pc) =>
+      next_char()
+      match lex_key_boolean_or_float(pc, positive)
+      | let flt: _Float => flt
+      | let _: _BareKey | let _: _Bool => SignedValueExpected
+      end
+    | let _: U8 | None => SignedValueExpected
+    end
+
+  fun ref lex_key_boolean_or_float(cc: U8, positive: Bool = true)
+    : (_BareKey | _Bool | _Float)
+  =>
     let str: String = recover
       var temp: String ref = String()
       temp.push(cc)
@@ -321,6 +439,8 @@ class _Lexer
     match str
     | "true"  => _Bool(true)
     | "false" => _Bool(false)
+    | "inf" => _Float(_FloatEncoder.inf(positive))
+    | "nan" => _Float(_FloatEncoder.nan(positive))
     else
       _BareKey(str)
     end
@@ -383,26 +503,6 @@ class _Lexer
     | None => UnterminatedString
     end
 
-  fun ref lex_string(quote: U8): (_String | LexerError) =>
-    /*
-    // FIXME: This does not typecheck, we need more investigation
-    match lex_triple_quote(quote)
-    | true => lex_string_body('\0', quote, true)
-    | false => _String("")
-    | let nc: U8 => lex_string_body(nc, quote, false)
-    | let err: LexerError => err
-    end
-    */
-    var is_multiline: Bool = false
-    var cc: U8 = '\0'
-    match lex_triple_quote(quote)
-    | true => is_multiline = true
-    | false => return _String("")
-    | let nc: U8 => cc = nc
-    | let err: LexerError => return err
-    end
-    lex_string_body(cc, quote, is_multiline)
-
   fun ref lex_string_body(cc: U8, quote: U8, is_multiline: Bool)
     : (_String | LexerError)
   =>
@@ -463,6 +563,26 @@ class _Lexer
     end
     _String(str)
 
+  fun ref lex_string(quote: U8): (_String | LexerError) =>
+    /*
+    // FIXME: This does not typecheck, we need more investigation
+    match lex_triple_quote(quote)
+    | true => lex_string_body('\0', quote, true)
+    | false => _String("")
+    | let nc: U8 => lex_string_body(nc, quote, false)
+    | let err: LexerError => err
+    end
+    */
+    var is_multiline: Bool = false
+    var cc: U8 = '\0'
+    match lex_triple_quote(quote)
+    | true => is_multiline = true
+    | false => return _String("")
+    | let nc: U8 => cc = nc
+    | let err: LexerError => return err
+    end
+    lex_string_body(cc, quote, is_multiline)
+
   fun ref lex_comment(): _Token =>
     while true do
       match next_char()
@@ -497,13 +617,9 @@ class _Lexer
     while true do
       let token =
         match next_char()
-        | let nc: U8 if is_decimal(nc) => lex_integer(nc)
-        | let nc: U8 if is_sign(nc) =>
-          match next_char()
-          | let nnc: U8 if is_decimal(nnc) => lex_integer(nnc, true, nc == '+')
-          | let _: U8 | None => DecimalNumberExpected
-          end
-        | let nc: U8 if is_key_char(nc) => lex_key_or_boolean(nc)
+        | let nc: U8 if is_decimal(nc) => lex_number(nc)
+        | let nc: U8 if is_sign(nc) => lex_signed_number(nc)
+        | let nc: U8 if is_key_char(nc) => lex_key_boolean_or_float(nc)
         | let nc: U8 if is_quote(nc) => lex_string(nc)
         | let nc: U8 if is_comment(nc) => lex_comment()
         | let nc: U8 => lex_symbol(nc)
