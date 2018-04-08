@@ -280,7 +280,8 @@ class _Lexer
       | let _: U8 | None => break
       end
     end
-    if last_underscore then
+    // TODO: add corresponding test
+    if (value > 9) and last_underscore then
       UnderscoreNotSurroundedByDigits
     else
       value
