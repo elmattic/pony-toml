@@ -52,6 +52,10 @@ class val _FloatEncoder
   let sign_offset: U64 = 63
   let exp_offset: U64 = 52
   let exp_bias: U64 = 1023
+  let inf_bits: U64 =
+    0b0_11111111111_0000000000000000000000000000000000000000000000000000
+  let nan_bits: U64 =
+    0b0_11111111111_1000000000000000000000000000000000000000000000000000
 
   fun encode_float_part(avail_bits: USize, exponent: I64, integer: Array[U8])
     : U64
@@ -154,16 +158,20 @@ class val _FloatEncoder
     let big_int_part_msb: U64 = big_int_part.msb()
     let exp_bits: U64 = ((big_int_part_msb - 1) + exp_bias) << exp_offset
     // sign bits
-    let sign_bit: U64 = if positive then 0 else 0x1 << sign_offset end
+    let sign_bit: U64 = encode_sign_bit(positive)
     // assemble all bits together
     let float_bits: U64 = (sign_bit or exp_bits) or frac_bits
     F64.from_bits(float_bits)
 
+  fun encode_sign_bit(positive: Bool): U64 =>
+    if positive then 0 else 0x1 << sign_offset end
+
   fun inf(positive: Bool): F64 =>
-    0.0
+    let sign_bit: U64 = encode_sign_bit(positive)
+    F64.from_bits(sign_bit or inf_bits)
 
   fun nan(positive: Bool): F64 =>
-    0.0
+    F64.from_bits(nan_bits)
 
 class val _Float
   let value: F64
