@@ -1,7 +1,3 @@
-class _U64
-  fun msb(value: U64): U64 =>
-    value.bitwidth() - value.clz()
-
 class _BigUInt
   let values: Array[U64]
 
@@ -59,6 +55,20 @@ class _BigUInt
     end
     result.reverse_in_place()
     result
+
+  fun ref clz(): U64 =>
+    if values.size() > 0 then
+      try
+        let high: U64 = values(values.size() - 1)?
+        high.clz()
+      else
+        // unreachable
+        0
+      end
+    else
+      // undefined
+      0
+    end
 
   fun ref add_u64(value: U64): None =>
     _add_rec(0, value)
@@ -215,19 +225,4 @@ class _BigUInt
       end
     else
       false
-    end
-
-  fun ref msb(): U64 =>
-    try
-      if values.size() == 0 then
-        0
-      elseif values.size() == 1 then
-        _U64.msb(values(values.size() - 1)?)
-      else
-        let tail: U64 = ((values.size() - 1) * 64).u64()
-        _U64.msb(values(values.size() - 1)?) + tail
-      end
-    else
-      // unreachable
-      0
     end

@@ -57,21 +57,55 @@ class val _FloatEncoder
   let nan_bits: U64 =
     0b0_11111111111_1000000000000000000000000000000000000000000000000000
 
-  fun encode_float_part(avail_bits: USize, exponent: I64, integer: Array[U8])
-    : U64
+  fun encode_int_part(big_int: _BigUInt, big_int_size: USize, big_int_clz: U64)
+    : (U64, U64)
+  =>
+    let int_part_left_aligned: U64 =
+      try
+        let nolz: U64 = big_int.values(big_int_size - 1)? << big_int_clz
+        let msb_bits: U64 = nolz << 1
+        let lsb_bits: U64 =
+          if big_int_size > 1 then
+            big_int.values(big_int_size - 2)? >> (64 - big_int_clz - 1)
+          else
+            0
+          end
+        msb_bits or lsb_bits
+      else
+        // unreachable
+        0
+      end
+    // compute integer part bits
+    let int_part_offset: U64 = 64 - exp_offset
+    let int_part_bits: U64 = int_part_left_aligned >> int_part_offset
+    let avail_bits_i64 = exp_offset.i64() - ((64 - big_int_clz.i64()) - 1)
+    let avail_bits: U64 = avail_bits_i64.max(0).u64()
+    (int_part_bits, avail_bits)
+
+  fun encode_float_part(
+    int_part_gtz: Bool,
+    avail_bits: USize,
+    exponent: I64,
+    integer: Array[U8])
+    : (U64, U64)
   =>
     let float_part = _BigUInt.create("0")
     let fpot = _BigUInt.create("5")
     let scratch = _BigUInt.empty()
+    let start: ISize = integer.size().isize() + exponent.isize()
     var float_part_bits: U64 = 0
-    let start: USize = (integer.size().isize() + exponent.isize()).usize()
+    var float_part_clz: U64 = 0
+    var write_state: (Bool | None) = if int_part_gtz then true else false end
     var i: USize = 0
+    var j: ISize = 0
     while i < avail_bits do
-      let index = start + i
+      let index: ISize = start + j
       let value: U64 =
-        if index < integer.size() then
+        if index < 0 then
+          0
+        elseif index < integer.size().isize() then
           try
-            let cc = integer(index)?
+            let cc = integer(index.usize())?
             (cc - '0').u64()
           else
             // unreachable
@@ -84,12 +118,16 @@ class val _FloatEncoder
       let bit_on: Bool =
         if float_part.ge(fpot) then
           float_part.sub(fpot)
-          let offset: USize = (avail_bits - 1 - i)
-          float_part_bits = float_part_bits or (0x1 << offset.u64())
           true
         else
           false
         end
+      match write_state
+      | false if bit_on => write_state = None
+      | false => float_part_clz = float_part_clz + 1
+      | None => write_state = true
+      | true => None
+      end
       // TODO: check IEEE 754 standard regarding rounding
       let rounds_up: Bool =
         if i == (avail_bits - 1) then
@@ -97,66 +135,72 @@ class val _FloatEncoder
         else
           false
         end
-      if bit_on or rounds_up then
-        let offset: USize = (avail_bits - 1 - i)
-        float_part_bits = float_part_bits or (0x1 << offset.u64())
+      match write_state
+      | true =>
+        if bit_on or rounds_up then
+          let offset: USize = (avail_bits - 1 - i)
+          float_part_bits = float_part_bits or (0x1 << offset.u64())
+        end
+        i = i + 1
+      | false | None => None
       end
       float_part.mul_u64(10, scratch)
       fpot.mul_u64(5, scratch)
-      i = i + 1
+      j = j + 1
     end
-    float_part_bits
+    (float_part_bits, float_part_clz)
 
   fun encode(positive: Bool, exponent: I64, integer: Array[U8]): F64 =>
-    let big_int_part = _BigUInt("0")
+    let big_int = _BigUInt("0")
     let scratch = _BigUInt.empty()
-    let digits = (integer.size().isize() + exponent.isize()).usize()
-    try
-      Assert(digits > 0, "number must have at least one digit")?
-    end
-    var i: USize = 0
-    while i < digits do
-      try
-        let value: U64 =
-          if i < integer.size() then
-            let cc: U8 = integer(i)?
-            (cc - '0').u64()
-          else
-            0
-          end
-        big_int_part.mul_u64(10, scratch)
-        big_int_part.add_u64(value)
-      else
-        // unreachable
-        None
+    let num_digits: ISize = integer.size().isize() + exponent.isize()
+    if num_digits > 0 then
+      var i: USize = 0
+      while i < num_digits.usize() do
+        try
+          let value: U64 =
+            if i < integer.size() then
+              let cc: U8 = integer(i)?
+              (cc - '0').u64()
+            else
+              0
+            end
+          big_int.mul_u64(10, scratch)
+          big_int.add_u64(value)
+        else
+          // unreachable
+          None
+        end
+        i = i + 1
       end
-      i = i + 1
     end
-    let int_part: U64 =
-      try
-        big_int_part.values(big_int_part.values.size() - 1)?
+    let big_int_size: USize = big_int.values.size()
+    let big_int_clz: U64 = big_int.clz()
+    let int_part_gtz: Bool = big_int.gtz()
+    (let int_part_bits: U64, let avail_bits: U64) =
+      if int_part_gtz then
+        encode_int_part(big_int, big_int_size, big_int_clz)
       else
-        // unreachable
-        0
+        (0, exp_offset)
       end
-    let int_part_msb: U64 = _U64.msb(int_part)
-    // compute integer part bits
-    let int_part_offset: U64 = exp_offset - (int_part_msb - 1)
-    let hidden_bit: U64 = 0x1 << (int_part_msb - 1)
-    let int_part_bits: U64 = (int_part - hidden_bit) << int_part_offset
     // compute float part bits
-    let avail_bits: U64 = exp_offset - (int_part_msb - 1)
-    let float_part_bits: U64 =
+    (let float_part_bits: U64, let float_part_clz: U64) =
       if avail_bits > 0 then
-        encode_float_part(avail_bits.usize(), exponent, integer)
+        encode_float_part(int_part_gtz, avail_bits.usize(), exponent, integer)
       else
-        0x0
+        (0x0, 0)
       end
     // fraction bits
     let frac_bits = int_part_bits or float_part_bits
     // exponent bits
-    let big_int_part_msb: U64 = big_int_part.msb()
-    let exp_bits: U64 = ((big_int_part_msb - 1) + exp_bias) << exp_offset
+    let exp: I64 =
+      if int_part_gtz then
+        ((64 - big_int_clz.i64()) - 1) +
+        if big_int_size > 1 then (big_int_size.i64() - 1) * 64 else 0 end
+      else
+        -(float_part_clz.i64() + 1)
+      end
+    let exp_bits: U64 = (exp.u64() + exp_bias) << exp_offset
     // sign bits
     let sign_bit: U64 = encode_sign_bit(positive)
     // assemble all bits together
