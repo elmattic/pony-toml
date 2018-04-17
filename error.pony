@@ -28,6 +28,14 @@ primitive SignedValueExpected
 fun string(): String iso^ =>
   "float, inf, nan or decimal integer expected after sign".string()
 
+primitive FloatValueOverflowed
+fun string(): String iso^ =>
+  "value is too large to be represented on a double-precision float".string()
+
+primitive FloatValueUnderflowed
+fun string(): String iso^ =>
+  "value is too small to be represented on a double-precision float".string()
+
 primitive UnterminatedString
 fun string(): String iso^ =>
   "unterminated string, did you forget the ‘\"’?".string()
@@ -68,6 +76,8 @@ type LexerError is
   | FractionalPartExpected
   | ExponentPartExpected
   | SignedValueExpected
+  | FloatValueOverflowed
+  | FloatValueUnderflowed
   | StringError
   | InvalidChar )
 

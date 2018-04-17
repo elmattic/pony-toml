@@ -1,5 +1,8 @@
 use "assert"
 use "files"
+use "itertools"
+
+use @strtod[F64](str: Pointer[U8] tag, endptr: Pointer[Pointer[U8] tag] tag)
 
 trait _Keyable
   fun key(): _BareKey val
@@ -57,111 +60,16 @@ class val _FloatEncoder
   let nan_bits: U64 =
     0b0_11111111111_1000000000000000000000000000000000000000000000000000
 
-  fun encode_float_part(avail_bits: USize, exponent: I64, integer: Array[U8])
-    : U64
-  =>
-    let float_part = _BigUInt.create("0")
-    let fpot = _BigUInt.create("5")
-    let scratch = _BigUInt.empty()
-    var float_part_bits: U64 = 0
-    let start: USize = (integer.size().isize() + exponent.isize()).usize()
-    var i: USize = 0
-    while i < avail_bits do
-      let index = start + i
-      let value: U64 =
-        if index < integer.size() then
-          try
-            let cc = integer(index)?
-            (cc - '0').u64()
-          else
-            // unreachable
-            0
-          end
-        else
-          0
-        end
-      float_part.add_u64(value)
-      let bit_on: Bool =
-        if float_part.ge(fpot) then
-          float_part.sub(fpot)
-          let offset: USize = (avail_bits - 1 - i)
-          float_part_bits = float_part_bits or (0x1 << offset.u64())
-          true
-        else
-          false
-        end
-      // TODO: check IEEE 754 standard regarding rounding
-      let rounds_up: Bool =
-        if i == (avail_bits - 1) then
-          float_part.gtz()
-        else
-          false
-        end
-      if bit_on or rounds_up then
-        let offset: USize = (avail_bits - 1 - i)
-        float_part_bits = float_part_bits or (0x1 << offset.u64())
-      end
-      float_part.mul_u64(10, scratch)
-      fpot.mul_u64(5, scratch)
-      i = i + 1
-    end
-    float_part_bits
-
   fun encode(positive: Bool, exponent: I64, integer: Array[U8]): F64 =>
-    let big_int_part = _BigUInt("0")
-    let scratch = _BigUInt.empty()
-    let digits = (integer.size().isize() + exponent.isize()).usize()
-    try
-      Assert(digits > 0, "number must have at least one digit")?
+    let str: String ref = String()
+    if not positive then
+      str.push('-')
     end
-    var i: USize = 0
-    while i < digits do
-      try
-        let value: U64 =
-          if i < integer.size() then
-            let cc: U8 = integer(i)?
-            (cc - '0').u64()
-          else
-            0
-          end
-        big_int_part.mul_u64(10, scratch)
-        big_int_part.add_u64(value)
-      else
-        // unreachable
-        None
-      end
-      i = i + 1
-    end
-    let int_part: U64 =
-      try
-        big_int_part.values(big_int_part.values.size() - 1)?
-      else
-        // unreachable
-        0
-      end
-    let int_part_msb: U64 = _U64.msb(int_part)
-    // compute integer part bits
-    let int_part_offset: U64 = exp_offset - (int_part_msb - 1)
-    let hidden_bit: U64 = 0x1 << (int_part_msb - 1)
-    let int_part_bits: U64 = (int_part - hidden_bit) << int_part_offset
-    // compute float part bits
-    let avail_bits: U64 = exp_offset - (int_part_msb - 1)
-    let float_part_bits: U64 =
-      if avail_bits > 0 then
-        encode_float_part(avail_bits.usize(), exponent, integer)
-      else
-        0x0
-      end
-    // fraction bits
-    let frac_bits = int_part_bits or float_part_bits
-    // exponent bits
-    let big_int_part_msb: U64 = big_int_part.msb()
-    let exp_bits: U64 = ((big_int_part_msb - 1) + exp_bias) << exp_offset
-    // sign bits
-    let sign_bit: U64 = encode_sign_bit(positive)
-    // assemble all bits together
-    let float_bits: U64 = (sign_bit or exp_bits) or frac_bits
-    F64.from_bits(float_bits)
+    str.append(integer)
+    str.push('e')
+    str.append(exponent.string())
+    var endptr: Pointer[U8] tag = Pointer[U8].create()
+    @strtod(str.cstring(), addressof endptr)
 
   fun encode_sign_bit(positive: Bool): U64 =>
     if positive then 0 else 0x1 << sign_offset end
@@ -494,7 +402,21 @@ class _Lexer
       return UnderscoreNotSurroundedByDigits
     end
     if decimal_point or explicit_exp then
-      _Float(_FloatEncoder.encode(positive, exponent, data))
+      let flt: F64 = _FloatEncoder.encode(positive, exponent, data)
+      if flt.bits() != 0x0 then
+        if flt.finite() then
+          _Float(flt)
+        else
+          FloatValueOverflowed
+        end
+      else
+        // This avoid us to deal with the errno macro
+        if Iter[U8](data.values()).any({(c) => c != '0' }) then
+          FloatValueUnderflowed
+        else
+          _Float(flt)
+        end
+      end
     else
       // TODO: use lex_decimal via push/pop lexer state?
       var value: U64 = 0

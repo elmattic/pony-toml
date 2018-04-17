@@ -86,6 +86,8 @@ actor Main is TestList
     test(_TestBooleanTrue)
     test(_TestBooleanFalse)
 
+    test(_TestFloat)
+
     test(_TestTableEmpty)
     test(_TestTableEmptyNewline)
     test(_TestTableOneInner)
@@ -1015,6 +1017,67 @@ class iso _TestBooleanFalse is UnitTest
       """
       {
         "a": false
+      }""")
+
+//
+// Float
+//
+
+class iso _TestFloat is UnitTest
+  fun name(): String => "float"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      # fractional
+      flt1 = +1.0
+      flt2 = 3.1415
+      flt3 = -0.01
+
+      # exponent
+      flt4 = 5e+22
+      flt5 = 1e6
+      flt6 = -2E-2
+
+      # both
+      flt7 = 6.626e-34
+
+      # underscore
+      flt8 = 9_224_617.445_991_228_313
+
+      # zero
+      flt9 = 0.0
+      flt10 = -0.0
+
+      # infinity
+      sf1 = inf  # positive infinity
+      sf2 = +inf # positive infinity
+      sf3 = -inf # negative infinity
+
+      # not a number
+      sf4 = nan  # actual sNaN/qNaN encoding is implementation specific
+      sf5 = +nan # same as `nan`
+      sf6 = -nan # valid, actual encoding is implementation specific
+      """
+      ,
+      """
+      {
+        "sf6": nan,
+        "flt1": 1,
+        "flt2": 3.1415,
+        "flt6": -0.02,
+        "flt10": -0,
+        "flt5": 1e+06,
+        "flt3": -0.01,
+        "flt9": 0,
+        "sf1": inf,
+        "flt8": 9.22462e+06,
+        "sf3": -inf,
+        "flt7": 6.626e-34,
+        "sf5": nan,
+        "sf2": inf,
+        "sf4": nan,
+        "flt4": 5e+22
       }""")
 
 //
