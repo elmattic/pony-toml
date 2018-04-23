@@ -95,6 +95,7 @@ class Parser
   var _error: (None | Error) = None
   let _root_level: USize = 1 // using _table_stack.size() do NOT work
   var _ahead: ((_Token | LexerError) | None) = None
+  var _array_of_tables: Set[String] = Set[String]()
 
   new from_file(file: File ref) =>
     _lexer = _Lexer.from_file(file)
@@ -149,6 +150,8 @@ class Parser
       | _End => match rhs | _End => true else false end
       | _LeftBracket => match rhs | _LeftBracket => true else false end
       | _RightBracket => match rhs | _RightBracket => true else false end
+      | _LeftBracketDuo => match rhs | _LeftBracketDuo => true else false end
+      | _RightBracketDuo => match rhs | _RightBracketDuo => true else false end
       | _LeftBrace => match rhs | _LeftBrace => true else false end
       | _RightBrace => match rhs | _RightBrace => true else false end
       | _Equals => match rhs | _Equals => true else false end
@@ -182,16 +185,32 @@ class Parser
       _pop_table()
     end
 
-  fun ref _push_table(key: _BareKey, is_dotted: Bool = false)
+  fun ref _push_table(bare: _BareKey, is_dotted: Bool = false, index: USize = 0)
     : (None | ParserError)
   =>
     try
-      Assert(_table_stack.size() > 0, "_table_stack must not be empty")?
-      let table = _table_stack(_table_stack.size() - 1)?
-      if table.map.contains(key.name) then
+      let table = _get_top_table()
+      if table.map.contains(bare.name) then
         if is_dotted then
-          match table.map(key.name)?
-          | let this_table: TOMLTable => _table_stack.push(this_table)
+          match table.map(bare.name)?
+          | let tbl: TOMLTable => _table_stack.push(tbl)
+          | let arr: TOMLArray =>
+            let entry = bare.name + index.string()
+            if _array_of_tables.contains(entry) then
+              try
+                match arr.array(arr.array.size() - 1)?
+                | let tbl: TOMLTable => _table_stack.push(tbl)
+                else
+                  // unreachable
+                  None
+                end
+              else
+                // unreachable
+                None
+              end
+            else
+              ArrayStaticallyDefined
+            end
           else
             ValueIsNotATable
           end
@@ -200,10 +219,13 @@ class Parser
         end
       else
         let new_table = TOMLTable.create()
-        table.map.insert(key.name, new_table)?
+        table.map.insert(bare.name, new_table)?
         _table_stack.push(new_table)
         None
       end
+    else
+      // unreachable
+      None
     end
 
   fun ref _push_table_rec(dotted: _DottedKey, index: USize)
@@ -212,13 +234,13 @@ class Parser
     try
       if index < (dotted.names.size() - 1) then
         let bare = _BareKey(dotted.names(index)?)
-        match _push_table(bare, true)
+        match _push_table(bare, true, index)
         | None => _push_table_rec(dotted, index + 1)
         | let err: ParserError => err
         end
       else
         let bare = _BareKey(dotted.names(index)?)
-        _push_table(bare)
+        _push_table(bare, false, index)
       end
     else
       // unreachable
@@ -229,7 +251,7 @@ class Parser
     let token = _next_token()
     match token
     | let keyable: _Keyable val =>
-      let result =
+      let result: (None | ParserError) =
         match _parse_key(keyable.key(), true)
         | let bare: _BareKey =>
           _pop_tables()
@@ -237,9 +259,105 @@ class Parser
         | let dotted: _DottedKey =>
           _pop_tables()
           _push_table_rec(dotted, 0)
+        //| let err: ParserError => err // FIXME: forgotten case
         end
       match result
       | None => None
+      | let err: ParserError => Error(err, _lexer)
+      end
+    else
+      _error_expected(token, "the table name")
+    end
+
+  fun ref _get_array(table: TOMLTable, bare: _BareKey, index: USize)
+    : (TOMLArray | ParserError)
+  =>
+    try
+      let entry = bare.name + index.string()
+      if table.map.contains(bare.name) then
+        match table.map(bare.name)?
+        | let arr: TOMLArray => arr
+          if _array_of_tables.contains(entry) then
+            arr
+          else
+            ArrayStaticallyDefined
+          end
+        else
+          KeyOrTableDefinedMoreThanOnce
+        end
+      else
+        _array_of_tables.set(entry)
+        let new_array = TOMLArray.create()
+        _insert_value(table, bare, new_array)
+        new_array
+      end
+    else
+      // unreachable
+      TOMLArray.create()
+    end
+
+  fun ref _get_array_rec(table: TOMLTable, dotted: _DottedKey, index: USize)
+    : (TOMLArray | ParserError)
+  =>
+    try
+      if index < (dotted.names.size() - 1) then
+        let bare = _BareKey(dotted.names(index)?)
+        match _get_array(table, bare, index)
+        | let arr: TOMLArray =>
+          let last_table: TOMLTable =
+            if arr.array.size() == 0 then
+              let new_table = TOMLTable.create()
+              arr.array.push(new_table)
+              new_table
+            else
+              match arr.array(arr.array.size() - 1)?
+              | let tbl: TOMLTable => tbl
+              else
+                // unreachable
+                TOMLTable.create()
+              end
+            end
+          _get_array_rec(last_table, dotted, index + 1)
+        | let err: ParserError => err
+        end
+      else
+        let bare = _BareKey(dotted.names(index)?)
+        _get_array(table, bare, index)
+      end
+    else
+      // unreachable
+      TOMLArray.create()
+    end
+
+  fun ref _get_top_table(): TOMLTable =>
+    try
+      Assert(_table_stack.size() > 0, "_table_stack must not be empty")?
+      _table_stack(_table_stack.size() - 1)?
+    else
+      // unreachable
+      TOMLTable.create()
+    end
+
+  fun ref _parse_array_of_tables(): (None | Error) =>
+    let token = _next_token()
+    match token
+    | let keyable: _Keyable val =>
+      let result: (TOMLArray | ParserError) =
+        match _parse_key(keyable.key(), true)
+        | let bare: _BareKey =>
+          _pop_tables()
+          _get_array(_get_top_table(), bare, 0)
+        | let dotted: _DottedKey =>
+          _pop_tables()
+          _get_array_rec(_get_top_table(), dotted, 0)
+        else //| let err: ParserError => err // FIXME: forgotten case
+          TOMLArray.create()
+        end
+      match result
+      | let arr: TOMLArray =>
+        let new_table = TOMLTable.create()
+        _table_stack.push(new_table)
+        arr.array.push(new_table)
       | let err: ParserError => Error(err, _lexer)
       end
     else
@@ -261,19 +379,19 @@ class Parser
         | let err: ParserError => err
         end
       else
-        _insert_value(bare, value)
+        _insert_value(_get_top_table(), bare, value)
       end
     else
       // unreachable
       None
     end
 
-  fun ref _insert_value(key: _Key, value: TOMLValue): (None | ParserError) =>
+  fun ref _insert_value(table: TOMLTable, key: _Key, value: TOMLValue)
+    : (None | ParserError)
+  =>
     match key
     | let bare: _BareKey =>
       try
-        Assert(_table_stack.size() > 0, "_table_stack must not be empty")?
-        let table = _table_stack(_table_stack.size() - 1)?
         if table.map.contains(bare.name) then
           KeyOrTableDefinedMoreThanOnce
         else
@@ -388,6 +506,7 @@ class Parser
         end
       | _Equals if not is_table => break
       | _RightBracket if is_table => break
+      | _RightBracketDuo if is_table => break
       else
         let terminator = if is_table then "a right bracket" else "equals" end
         return _error_expected(token, "a dot or " + terminator)
@@ -401,7 +520,7 @@ class Parser
     | let key: _Key =>
       match _parse_value()
       | let value: TOMLValue =>
-        match _insert_value(key, value)
+        match _insert_value(_get_top_table(), key, value)
         | None => None
         | let err: ParserError => Error(err, _lexer)
         end
@@ -422,6 +541,7 @@ class Parser
           | let err: Error => err
           end
         | _LeftBracket => _parse_table()
+        | _LeftBracketDuo => _parse_array_of_tables()
         | _Newline => continue
         | _End => break
         else
@@ -476,7 +596,7 @@ actor _Main
         [servers.beta]
         ip = "10.0.0.2"
         dc = "eqdc10"
-      """)
+        """)
     match parser.parse()
     | let doc: TOMLTable =>
       env.out.print(doc.string()) // JSON like output

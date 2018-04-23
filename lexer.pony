@@ -114,16 +114,18 @@ class val _Bool is _Keyable
   fun key(): _BareKey val =>
     _BareKey(value.string())
 
-primitive _End          fun string(): String iso^ => "EOF".string()
-primitive _LeftBracket  fun string(): String iso^ => "‘[’".string()
-primitive _RightBracket fun string(): String iso^ => "‘]’".string()
-primitive _LeftBrace    fun string(): String iso^ => "‘{’".string()
-primitive _RightBrace   fun string(): String iso^ => "‘}’".string()
-primitive _Equals       fun string(): String iso^ => "‘=’".string()
-primitive _Dot          fun string(): String iso^ => "‘.’".string()
-primitive _Comma        fun string(): String iso^ => "‘,’".string()
-primitive _Whitespace   fun string(): String iso^ => "a whitespace".string()
-primitive _Newline      fun string(): String iso^ => "a newline".string()
+primitive _End             fun string(): String iso^ => "EOF".string()
+primitive _LeftBracket     fun string(): String iso^ => "‘[’".string()
+primitive _RightBracket    fun string(): String iso^ => "‘]’".string()
+primitive _LeftBracketDuo  fun string(): String iso^ => "‘[[’".string()
+primitive _RightBracketDuo fun string(): String iso^ => "‘]]’".string()
+primitive _LeftBrace       fun string(): String iso^ => "‘{’".string()
+primitive _RightBrace      fun string(): String iso^ => "‘}’".string()
+primitive _Equals          fun string(): String iso^ => "‘=’".string()
+primitive _Dot             fun string(): String iso^ => "‘.’".string()
+primitive _Comma           fun string(): String iso^ => "‘,’".string()
+primitive _Whitespace      fun string(): String iso^ => "a whitespace".string()
+primitive _Newline         fun string(): String iso^ => "a newline".string()
 
 type _Token is
   ( _Integer
@@ -134,6 +136,8 @@ type _Token is
   | _End
   | _LeftBracket
   | _RightBracket
+  | _LeftBracketDuo
+  | _RightBracketDuo
   | _LeftBrace
   | _RightBrace
   | _Equals
@@ -620,8 +624,18 @@ class _Lexer
 
   fun ref lex_symbol(cc: U8): (_Token | LexerError) =>
     match cc
-    | '[' => _LeftBracket
-    | ']' => _RightBracket
+    | '[' =>
+      match peep_char()
+      | '[' => next_char(); _LeftBracketDuo
+      else
+        _LeftBracket
+      end
+    | ']' =>
+      match peep_char()
+      | ']' => next_char(); _RightBracketDuo
+      else
+        _RightBracket
+      end
     | '{' => _LeftBrace
     | '}' => _RightBrace
     | '=' => _Equals

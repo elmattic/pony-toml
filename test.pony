@@ -105,6 +105,14 @@ actor Main is TestList
     test(_TestInlineTable)
     test(_TestInlineTableFail)
 
+    test(_TestArrayOfTables)
+    test(_TestArrayOfTablesNested)
+    test(_TestArrayOfTablesFailEmpty)
+    test(_TestArrayOfTablesFailCompatible)
+    test(_TestArrayOfTablesFailConflict)
+    test(_TestArrayOfTablesFailConflict2)
+    test(_TestArrayOfTablesFailConflict3)
+
 class Check
   fun apply(h: TestHelper, input: String, reference: String) =>
     let parser = Parser.from_string(input)
@@ -1308,7 +1316,7 @@ class iso _TestArray is UnitTest
 class iso _TestArrayFail is UnitTest
   fun name(): String => "array mix data types"
 
-    fun apply(h: TestHelper) =>
+  fun apply(h: TestHelper) =>
     Fail(h,
       """
       a = [ true, 1 ]
@@ -1317,7 +1325,7 @@ class iso _TestArrayFail is UnitTest
 class iso _TestInlineTable is UnitTest
   fun name(): String => "inline table test"
 
-    fun apply(h: TestHelper) =>
+  fun apply(h: TestHelper) =>
     Check(h,
       """
       name = { first = "Tom", last = "Preston-Werner" }
@@ -1344,9 +1352,165 @@ class iso _TestInlineTable is UnitTest
 class iso _TestInlineTableFail is UnitTest
   fun name(): String => "inline table with a newline"
 
-    fun apply(h: TestHelper) =>
+  fun apply(h: TestHelper) =>
     Fail(h,
       """
       name = { first = "Tom",
       last = "Preston-Werner" }
+      """)
+
+class iso _TestArrayOfTables is UnitTest
+  fun name(): String => "array of tables"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      [[products]]
+      name = "Hammer"
+      sku = 738594937
+
+      [[products]]
+
+      [[products]]
+      name = "Nail"
+      sku = 284758393
+      color = "gray"
+      """,
+      """
+      {
+        "products": [
+          {
+            "sku": 738594937,
+            "name": "Hammer"
+          },
+          {
+          },
+          {
+            "sku": 284758393,
+            "color": "gray",
+            "name": "Nail"
+          }
+        ]
+      }""")
+
+class iso _TestArrayOfTablesNested is UnitTest
+  fun name(): String => "array of tables with nesting"
+
+  fun apply(h: TestHelper) =>
+    Check(h,
+      """
+      [[fruit]]
+        name = "apple"
+
+        [fruit.physical]
+          color = "red"
+          shape = "round"
+
+        [[fruit.variety]]
+          name = "red delicious"
+
+        [[fruit.variety]]
+          name = "granny smith"
+
+      [[fruit]]
+        name = "banana"
+
+        [[fruit.variety]]
+          name = "plantain"
+      """,
+      """
+      {
+        "fruit": [
+          {
+            "variety": [
+              {
+                "name": "red delicious"
+              },
+              {
+                "name": "granny smith"
+              }
+            ],
+            "physical": {
+              "color": "red",
+              "shape": "round"
+            },
+            "name": "apple"
+          },
+          {
+            "variety": [
+              {
+                "name": "plantain"
+              }
+            ],
+            "name": "banana"
+          }
+        ]
+      }""")
+
+class iso _TestArrayOfTablesFailEmpty is UnitTest
+  fun name(): String => "array of tables with empty array"
+
+  fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      fruit = []
+
+      [[fruit]] # Not allowed
+      """)
+
+class iso _TestArrayOfTablesFailCompatible is UnitTest
+  fun name(): String => "array of tables with array of compatible type"
+
+  fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      fruit = [ {} ]
+
+      [[fruit]] # Not allowed
+      """)
+
+class iso _TestArrayOfTablesFailConflict is UnitTest
+  fun name(): String => "array of tables with array that conflict"
+
+  fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      [[fruit]]
+      name = "apple"
+
+      [[fruit.variety]]
+      name = "red delicious"
+
+      # This table conflicts with the previous table
+      [fruit.variety]
+      name = "granny smith"
+      """)
+
+class iso _TestArrayOfTablesFailConflict2 is UnitTest
+  fun name(): String => "array of tables with array that conflict"
+
+  fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      flavor = []
+
+      [[fruit]]
+      name = "apple"
+
+      [[fruit.flavor]]
+      sour = true
+
+      [[flavor]]
+      sour = true
+      """)
+
+class iso _TestArrayOfTablesFailConflict3 is UnitTest
+  fun name(): String => "array of tables with array that conflict"
+
+  fun apply(h: TestHelper) =>
+    Fail(h,
+      """
+      a = []
+      [a.b]
+      v = 0
       """)

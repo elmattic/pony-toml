@@ -93,6 +93,10 @@ primitive ArrayHasMixDataTypes
 fun string(): String iso^ =>
   "data types may not be mixed in arrays".string()
 
+primitive ArrayStaticallyDefined
+fun string(): String iso^ =>
+  "attempting to append to a statically defined array".string()
+
 primitive NewlineInInlineTable
 fun string(): String iso^ =>
   "newlines are not allowed in inline tables".string()
@@ -112,6 +116,7 @@ type ParserError is
   ( KeyOrTableDefinedMoreThanOnce
   | ValueIsNotATable
   | ArrayHasMixDataTypes
+  | ArrayStaticallyDefined
   | NewlineInInlineTable
   | UnexpectedToken )
 
